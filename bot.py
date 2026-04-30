@@ -32,8 +32,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # ──────────────────────────────────────────────
 #  ⚙️  設定區（只需修改這裡）
 # ──────────────────────────────────────────────
-BOT_TOKEN  = "你的BOT_TOKEN"           # Discord Bot Token
-CHANNEL_ID = 0                          # 你的頻道ID（數字）
+BOT_TOKEN  = "MTQ5OTU0ODg5NTM0MzE1MzI2NA.GrJha0.xGdj38m_cW2nDJtZxzs2IJBA3kjSZ8yRsVa-4k"   # Discord Bot Token（填你的）
 
 TW_TZ   = pytz.timezone('Asia/Taipei')
 logging.basicConfig(level=logging.INFO,
@@ -392,41 +391,66 @@ def get_hist_cached():
     return _hist_cache
 
 
-async def get_channel():
-    return bot.get_channel(CHANNEL_ID)
+# ── 多伺服器頻道管理 ──
+import json, os
+
+CHANNELS_FILE = 'channels.json'
+
+def load_channels():
+    if os.path.exists(CHANNELS_FILE):
+        with open(CHANNELS_FILE) as f:
+            return json.load(f)
+    return {}
+
+def save_channels(data):
+    with open(CHANNELS_FILE, 'w') as f:
+        json.dump(data, f)
+
+def get_guild_channel_id(guild_id):
+    return load_channels().get(str(guild_id))
+
+async def get_all_channels():
+    """回傳所有已設定的頻道物件列表"""
+    data   = load_channels()
+    result = []
+    for gid, cid in data.items():
+        ch = bot.get_channel(int(cid))
+        if ch:
+            result.append(ch)
+    return result
 
 
 # ── 排程任務 ──
 
 async def job_daily_report():
-    """每日 09:00 日報"""
-    channel = await get_channel()
-    if not channel:
-        log.error("找不到頻道，請確認 CHANNEL_ID")
+    """每日 09:00 日報，發給所有已設定的伺服器"""
+    channels = await get_all_channels()
+    if not channels:
+        log.warning("尚未有任何伺服器設定頻道，請在伺服器輸入 !設定頻道")
         return
 
-    now      = datetime.now(TW_TZ)
-    hist     = get_hist_cached()
-    rt       = fetch_0050_realtime()
-    foreign  = fetch_foreign_flow()
+    now     = datetime.now(TW_TZ)
+    hist    = get_hist_cached()
+    rt      = fetch_0050_realtime()
+    foreign = fetch_foreign_flow()
 
     if '0050' not in hist:
-        await channel.send("⚠️ 今日無法取得市場資料，請稍後使用 `!check` 查詢。")
+        for channel in channels:
+            await channel.send("⚠️ 今日無法取得市場資料，請稍後使用 `!check` 查詢。")
         return
 
-    p0 = hist['0050']
-    ind = calc_indicators(p0['close'])
-    drawdown = rt['chg'] / 100 * p0['high60'] if rt else p0['drawdown']
-    # 以歷史高點計算真實回檔
+    p0        = hist['0050']
+    ind       = calc_indicators(p0['close'])
     actual_dd = (rt['price'] - p0['high60']) / p0['high60'] * 100 if rt else p0['drawdown']
     score, signals = convergence_score(actual_dd, ind, foreign)
     light, title, action = get_signal(actual_dd, score)
     hist_prob = historical_prob(actual_dd)
-
     msg = fmt_daily(hist, rt, ind, score, signals,
                     light, title, action, hist_prob, foreign, now)
-    await channel.send(msg)
-    log.info(f"日報已發送 {light} {title}")
+
+    for channel in channels:
+        await channel.send(msg)
+        log.info(f"日報已發送至 {channel.guild.name} {light} {title}")
 
 
 async def job_price_check():
@@ -479,9 +503,9 @@ async def job_price_check():
 
 
 async def job_weekly_report():
-    """每週一 09:00 週報"""
-    channel = await get_channel()
-    if not channel:
+    """每週一 09:00 週報，發給所有已設定的伺服器"""
+    channels = await get_all_channels()
+    if not channels:
         return
 
     now  = datetime.now(TW_TZ)
@@ -495,8 +519,9 @@ async def job_weekly_report():
     score, _ = convergence_score(p0['drawdown'], ind, foreign)
     light, title, _ = get_signal(p0['drawdown'], score)
     msg = fmt_weekly(hist, ind, score, light, title, now)
-    await channel.send(msg)
-    log.info("週報已發送")
+    for channel in channels:
+        await channel.send(msg)
+    log.info(f"週報已發送至 {len(channels)} 個伺服器")
 
 
 # ── 指令 ──
@@ -529,19 +554,48 @@ async def cmd_check(ctx):
         f"{light} **{title}**",
     ]))
 
+@bot.command(name='設定頻道')
+async def cmd_set_channel(ctx):
+    """!設定頻道 — 將此頻道設為日報/警報接收頻道"""
+    data = load_channels()
+    data[str(ctx.guild.id)] = ctx.channel.id
+    save_channels(data)
+    await ctx.send(
+        f"✅ **已設定！**\n"
+        f"此頻道（{ctx.channel.name}）將接收每日日報和加碼警報。\n"
+        f"每日 09:00 自動發送，有大跌立即推播。"
+    )
+    log.info(f"伺服器 {ctx.guild.name} 設定頻道: {ctx.channel.name}")
+
+@bot.command(name='取消頻道')
+async def cmd_remove_channel(ctx):
+    """!取消頻道 — 取消此伺服器的日報/警報"""
+    data = load_channels()
+    if str(ctx.guild.id) in data:
+        del data[str(ctx.guild.id)]
+        save_channels(data)
+        await ctx.send("✅ 已取消，此伺服器不再接收日報和警報。")
+    else:
+        await ctx.send("⚠️ 此伺服器尚未設定頻道。")
+
 @bot.command(name='help2')
 async def cmd_help(ctx):
     """!help2 — 指令說明"""
     await ctx.send("\n".join([
         "**📊 投資監控機器人 指令**",
-        "`!report` — 手動觸發今日完整日報",
-        "`!check`  — 快速查看當前 0050 狀況",
-        "`!help2`  — 顯示此說明",
+        "`!設定頻道` — 將此頻道設為日報/警報接收頻道",
+        "`!取消頻道` — 取消此伺服器的日報和警報",
+        "`!report`   — 手動觸發今日完整日報",
+        "`!check`    — 快速查看當前 0050 狀況",
+        "`!help2`    — 顯示此說明",
         "",
         "**⏰ 自動排程**",
         "每日 09:00（週一至五） — 日報",
         "每週一 09:00           — 週報",
         "每 13~17 分鐘           — 靜默偵測（觸發才推播）",
+        "",
+        "**💡 新伺服器加入後**",
+        "先輸入 `!設定頻道` 才會開始收到通知",
     ]))
 
 
@@ -566,12 +620,13 @@ async def on_ready():
     asyncio.create_task(random_interval_check())
     scheduler.start()
 
-    channel = await get_channel()
-    if channel:
+    channels = await get_all_channels()
+    for channel in channels:
         await channel.send(
             "✅ **投資監控機器人已上線！**\n"
             "輸入 `!help2` 查看指令 ｜ `!check` 查看當前狀況"
         )
+    log.info(f"已通知 {len(channels)} 個伺服器")
     log.info("排程已啟動，Bot 運行中")
 
 
