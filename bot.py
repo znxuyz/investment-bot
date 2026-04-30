@@ -32,7 +32,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # ──────────────────────────────────────────────
 #  ⚙️  設定區（只需修改這裡）
 # ──────────────────────────────────────────────
-BOT_TOKEN  = "MTQ5OTU0ODg5NTM0MzE1MzI2NA.GrJha0.xGdj38m_cW2nDJtZxzs2IJBA3kjSZ8yRsVa-4k"   # Discord Bot Token（填你的）
+BOT_TOKEN  = "MTQ5OTU0ODg5NTM0MzE1MzI2NA.GEy3B_.1G1Yq8HUo9YwwEQ4AwF8qa1g4Bwmv9DVD72yA8"   # Discord Bot Token（填你的）
 
 TW_TZ   = pytz.timezone('Asia/Taipei')
 logging.basicConfig(level=logging.INFO,
