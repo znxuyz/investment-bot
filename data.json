@@ -1,0 +1,82 @@
+{
+  "updated_at": "2026/05/02 07:40",
+  "market_open": true,
+  "0050": {
+    "price": 90.5,
+    "chg": -0.28,
+    "high60": 93.0,
+    "high60_date": "2026/04/27",
+    "high60_days": 3,
+    "drawdown": -2.69
+  },
+  "twii": {
+    "price": 0.0,
+    "chg": 0.0
+  },
+  "indicators": {
+    "RSI": 70.4,
+    "BIAS20": 7.72,
+    "BIAS60": 15.59,
+    "MACDhist": 0.6583,
+    "above_MA20": true,
+    "above_MA60": true,
+    "MA20": 84.01,
+    "MA60": 78.29
+  },
+  "convergence": {
+    "score": 0,
+    "signals": []
+  },
+  "signal": {
+    "light": "🟢",
+    "title": "正常持有｜繼續定額",
+    "action": "無需動作，每月定額照常執行"
+  },
+  "prediction": {
+    "score": 55,
+    "level": "中",
+    "emoji": "🟡",
+    "range": "-8%~-15%",
+    "advice": "留意回檔訊號，子彈先別動",
+    "signals": [
+      "RSI 70.4 過熱",
+      "乖離率 +7.7% 偏高",
+      "近30日漲 +16.3% 偏大",
+      "60日乖離 +15.6% 嚴重過高"
+    ]
+  },
+  "stocks": {
+    "2330": {
+      "name": "台積電",
+      "price": 2135.0,
+      "high60": 2265.0,
+      "high60_date": "2026/04/27",
+      "high60_days": 3,
+      "drawdown": -5.74
+    },
+    "2454": {
+      "name": "聯發科",
+      "price": 2610.0,
+      "high60": 2615.0,
+      "high60_date": "2026/04/28",
+      "high60_days": 2,
+      "drawdown": -0.19
+    },
+    "3711": {
+      "name": "日月光",
+      "price": 478.0,
+      "high60": 496.0,
+      "high60_date": "2026/04/24",
+      "high60_days": 4,
+      "drawdown": -3.63
+    }
+  },
+  "idle": {
+    "months": 0,
+    "emoji": "🟢",
+    "advice": "繼續等待，保留子彈",
+    "last_trigger": "2026-05-01"
+  },
+  "us_market": {},
+  "foreign_net": null
+}
