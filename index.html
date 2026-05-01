@@ -122,13 +122,13 @@ function histProb(dd){for(const k of[20,15,8]){if(dd<=-k){const d=HIST[k];return
 // ── TWSE API ──
 function monthStr(off=0){const d=new Date();d.setMonth(d.getMonth()-off);return`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}01`;}
 
-async function fetchMonth(dt){
-  const r=await fetch(`https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=${dt}&stockNo=0050`);
+async function fetchMonth(dt, stockNo='0050'){
+  const r=await fetch(`https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=${dt}&stockNo=${stockNo}`);
   if(!r.ok)return[];
   const d=await r.json();
   if(d.stat!=='OK'||!d.data)return[];
   return d.data.filter(row=>row[6]&&row[6]!=='--'&&row[6]!=='X')
-    .map(row=>({close:parseFloat(row[6].replace(/,/g,'')),prev:parseFloat(row[5].replace(/,/g,''))}))
+    .map(row=>({close:parseFloat(row[6].replace(/,/g,'')),prev:parseFloat(row[5].replace(/,/g,'')),date:row[0]}))
     .filter(r=>!isNaN(r.close));
 }
 
@@ -161,9 +161,58 @@ function render(history, todayClose, isToday){
   const dd=(price-h60)/h60*100;
   const r=rsi(closes), b20=bias(closes,20), b60=bias(closes,60);
   const m20=ma(closes,20), m60=ma(closes,60), mc=macd(closes);
+  // 找前波高點（含日期）
+  const high60data = history.slice(-60).reduce((best,d,i)=>d.close>best.close?{...d,idx:i}:best, {...history[Math.max(0,history.length-60)],idx:0});
+  const highDaysAgo = history.slice(-60).length - 1 - high60data.idx;
+  function parseTWSEDate(s){if(!s)return'';const p=s.split('/');return p.length===3?`${parseInt(p[0])+1911}/${p[1]}/${p[2]}`:s;}
+  const highDate = parseTWSEDate(high60data.date);
   const{score,sigs}=cvscore(dd,r,b20,mc.h,0);
   const pred=predictCorrection(closes,r,b20,b60);
+
+  // ── 個股卡片 HTML ──
+  function stockSig(dd){
+    if(dd<=-30)return{l:'🔴',t:'清倉警示',c:'var(--red)'};
+    if(dd<=-25)return{l:'🟠',t:'高度警戒',c:'#ff8c00'};
+    if(dd<=-15)return{l:'🟡',t:'注意觀察',c:'var(--yellow)'};
+    return{l:'🟢',t:'正常',c:'var(--green)'};
+  }
+  const sData=window._stockData||{};
+  const sNames={'2330':'台積電','2454':'聯發科','3711':'日月光'};
+  const stockCards=['2330','2454','3711'].map(code=>{
+    const sd=sData[code];
+    const name=sNames[code];
+    if(!sd)return`<div style="padding:10px;color:var(--muted);font-size:12px">${name} ${code}｜載入中...</div>`;
+    const sg=stockSig(sd.dd);
+    const pct=Math.min(Math.abs(sd.dd)/35*100,100);
+    const bc=sd.dd<=-25?'var(--red)':sd.dd<=-15?'var(--yellow)':'var(--green)';
+    return`<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+        <span style="font-weight:700">${name} <span style="font-family:var(--mono);font-size:11px;color:var(--muted)">${code}</span></span>
+        <span style="font-family:var(--mono);font-size:15px;color:var(--gold)">${sd.price.toFixed(2)} 元</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span style="color:var(--muted)">距近期高點 <b style="color:${sg.c}">${sd.dd.toFixed(2)}%</b></span>
+        <span>${sg.l} ${sg.t}</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.06);border-radius:3px;overflow:hidden;margin-bottom:4px">
+        <div style="height:100%;border-radius:3px;background:${bc};width:${pct}%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);font-family:var(--mono)">
+        <span>0%</span><span style="color:var(--yellow)">-25%</span><span style="color:var(--red)">-30%</span><span>-35%</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">高點：${sd.high60.toFixed(2)} 元｜${sd.highDate}｜距今 ${sd.highDays} 個交易日</div>
+      ${sd.dd<=-25?`<div style="margin-top:5px;padding:5px 8px;background:rgba(255,77,109,0.1);border-radius:5px;font-size:12px;color:var(--red)">⚠️ 已超過警戒門檻，建議重新評估基本面</div>`:''}
+    </div>`;
+  }).join('');
+
+  // ── 子彈閒置 ──
+  const idleD=window._idleData||{months:0,emoji:'🟢',advice:'繼續等待，保留子彈',lastDate:'--'};
+  const idleMonths=idleD.months;
+  const idleEmoji=idleD.emoji;
+  const idleAdvice=idleD.advice;
+  const idleLastDate=idleD.lastDate;
   const sig=signal(dd,score);
+  if(dd<=-8){ localStorage.setItem('lastTrigger',new Date().toISOString().slice(0,10)); }
   const prob=histProb(dd);
   const sc=score>=70?'var(--red)':score>=40?'var(--yellow)':'var(--green)';
   const ddP=Math.min(Math.abs(dd)/25*100,100);
@@ -192,6 +241,11 @@ function render(history, todayClose, isToday){
     </div>
     <div>
       <div class="ddl"><span>距近期高點回檔</span><span style="color:${ddC};font-weight:700">${dd.toFixed(2)}%</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;font-family:var(--mono)">
+        近期高點：<span style="color:var(--gold);font-weight:700">${h60.toFixed(2)} 元</span>
+        ｜ ${highDate?highDate:'--'}
+        ｜ 距今 <span style="color:var(--gold)">${highDaysAgo}</span> 個交易日
+      </div>
       <div class="ddt"><div class="ddf" style="width:${ddP}%;background:${ddC}"></div></div>
       <div class="ddm">
         <span class="ddmk">0%</span>
@@ -271,7 +325,39 @@ function render(history, todayClose, isToday){
     <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.7">
       ⚠️ 此為統計機率，不保證一定發生。回測機率高代表應備妥子彈，仍需等真實觸發門檻（-8%/-15%/-20%）才行動。
     </div>
-  </div>`;
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="ct">📌 個股持倉監控</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.7">
+      個股無0050自動汰換機制，需主動監控。回檔 <b style="color:var(--yellow)">-25%</b> 高度警戒｜<b style="color:var(--red)">-30%</b> 考慮清倉重新評估基本面。
+    </div>
+    ${stockCards}
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="ct">💰 子彈閒置狀況</div>
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
+      <div style="font-size:32px">${idleEmoji}</div>
+      <div>
+        <div style="font-size:14px;font-weight:700">${idleMonths} 個月未觸發加碼門檻</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">上次觸發：${idleLastDate}</div>
+      </div>
+    </div>
+    <div style="height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;margin-bottom:6px">
+      <div style="height:100%;border-radius:4px;width:${Math.min(idleMonths/12*100,100)}%;background:${idleMonths>=12?'var(--red)':idleMonths>=6?'var(--yellow)':'var(--green)'}"></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:10px;font-family:var(--mono)">
+      ${idleMonths}/12 個月
+      ${idleMonths>=6?`<span style="margin-left:8px;color:${idleMonths>=12?'var(--red)':'var(--yellow)'}">▲ 建議行動</span>`:''}
+    </div>
+    <div style="font-size:13px;padding:10px;border-radius:8px;border-left:3px solid ${idleMonths>=12?'var(--red)':idleMonths>=6?'var(--yellow)':'var(--green)'};background:rgba(255,255,255,0.03)">
+      ${idleAdvice}
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--muted)">
+      ※ 閒置計時以「0050實際觸發加碼門檻」為準
+    </div>
+  </div>\`;
 }
 
 // ── 回測機率預測 ──
@@ -319,6 +405,36 @@ async function loadAll(){
       if(closes[closes.length-1]!==price)closes.push(price);
       isToday=true;
     }
+    // 個股資料（平行抓取）
+    const SCODES=['2330','2454','3711'];
+    const sResults=await Promise.all(SCODES.map(async code=>{
+      try{
+        const ms=await Promise.all([0,1,2].map(i=>fetchMonth(monthStr(i),code).catch(()=>[])));
+        const all=ms.reverse().flat();
+        if(!all.length)return null;
+        const cls=all.map(d=>d.close); const dts=all.map(d=>d.date);
+        const p=cls[cls.length-1];
+        const s60=cls.slice(-60); const d60=dts.slice(-60);
+        const mi=s60.reduce((bi,v,i)=>v>s60[bi]?i:bi,0);
+        const h60=s60[mi];
+        const pp=d60[mi]?d60[mi].split('/'):[];
+        const hDate=pp.length===3?`${parseInt(pp[0])+1911}/${pp[1]}/${pp[2]}`:d60[mi]||'--';
+        return{price:p,high60:h60,highDate:hDate,highDays:s60.length-1-mi,dd:(p-h60)/h60*100};
+      }catch(e){return null;}
+    }));
+    window._stockData={};
+    SCODES.forEach((c,i)=>{if(sResults[i])window._stockData[c]=sResults[i];});
+
+    // 子彈閒置（localStorage記錄上次觸發）
+    const lts=localStorage.getItem('lastTrigger')||new Date().toISOString().slice(0,10);
+    const lt=new Date(lts); const nw=new Date();
+    const idleM=(nw.getFullYear()-lt.getFullYear())*12+(nw.getMonth()-lt.getMonth());
+    let idleE,idleA;
+    if(idleM>=12){idleE='⚠️';idleA='市場長期無大回檔，建議投入子彈的 80%';}
+    else if(idleM>=6){idleE='⏰';idleA='建議投入子彈的 50%，剩餘繼續等門檻';}
+    else{idleE='🟢';idleA='繼續等待，保留子彈';}
+    window._idleData={months:idleM,emoji:idleE,advice:idleA,lastDate:lts};
+
     render(history,price,isToday);
     const now=new Date();
     document.getElementById('updTime').textContent=`更新：${now.toLocaleDateString('zh-TW',{month:'numeric',day:'numeric'})} ${now.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit'})}`;
