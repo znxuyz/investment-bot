@@ -224,6 +224,51 @@ HIST = {
     8:  {'count': 23, 'rec': 19, 'days': 60,  'bounce': 11.2, 'maxdrop': 18.5},
 }
 
+def predict_correction(closes, rsi, bias20, bias60):
+    """根據技術指標預測近期回測機率"""
+    score = 0
+    signals = []
+    price = closes[-1]
+
+    # RSI 過熱
+    if rsi > 75:   score += 25; signals.append(f"RSI {rsi:.1f} 嚴重過熱")
+    elif rsi > 70: score += 15; signals.append(f"RSI {rsi:.1f} 過熱")
+    elif rsi > 65: score += 8;  signals.append(f"RSI {rsi:.1f} 偏熱")
+
+    # 乖離率過高
+    if bias20 > 8:   score += 20; signals.append(f"乖離率 +{bias20:.1f}% 嚴重偏高")
+    elif bias20 > 5: score += 13; signals.append(f"乖離率 +{bias20:.1f}% 偏高")
+    elif bias20 > 3: score += 6;  signals.append(f"乖離率 +{bias20:.1f}% 略偏高")
+
+    # 近30日漲幅
+    if len(closes) >= 30:
+        rise30 = (price - closes[-30]) / closes[-30] * 100
+        if rise30 > 20:   score += 20; signals.append(f"近30日漲 +{rise30:.1f}% 過大")
+        elif rise30 > 12: score += 12; signals.append(f"近30日漲 +{rise30:.1f}% 偏大")
+        elif rise30 > 7:  score += 5;  signals.append(f"近30日漲 +{rise30:.1f}%")
+
+    # 60日乖離
+    if bias60 > 10:  score += 15; signals.append(f"60日乖離 +{bias60:.1f}% 嚴重過高")
+    elif bias60 > 6: score += 8;  signals.append(f"60日乖離 +{bias60:.1f}% 偏高")
+
+    # 近10日連漲
+    if len(closes) >= 10:
+        recent = closes[-10:]
+        up_days = sum(1 for i in range(1, len(recent)) if recent[i] > recent[i-1])
+        if up_days >= 8:   score += 15; signals.append(f"近10日 {up_days} 天連漲過度")
+        elif up_days >= 6: score += 7;  signals.append(f"近10日 {up_days} 天上漲")
+
+    score = min(score, 100)
+
+    if score >= 70:   level, emoji, rng, advice = '高',  '🔴', '-12%~-20%', '子彈備妥，等真實觸發立刻行動'
+    elif score >= 45: level, emoji, rng, advice = '中',  '🟡', '-8%~-15%',  '留意回檔訊號，子彈先別動'
+    elif score >= 20: level, emoji, rng, advice = '低',  '🟢', '-5%~-10%',  '市場尚穩，繼續定額即可'
+    else:             level, emoji, rng, advice = '極低','🟢', '-3%~-7%',   '無明顯回測疑慮，正常持有'
+
+    return {'score': score, 'signals': signals, 'range': rng,
+            'level': level, 'emoji': emoji, 'advice': advice}
+
+
 def historical_prob(drawdown):
     for k in [20, 15, 8]:
         if drawdown <= -k:
@@ -259,7 +304,7 @@ def us_market_comment(spy_chg, qqq_chg, sox_chg, vix_val):
 #  訊息格式
 # ══════════════════════════════════════════
 def fmt_daily(hist_data, rt, ind, score, signals,
-              light, title, action, hist_prob, foreign_net, now):
+              light, title, action, hist_prob, foreign_net, now, pred=None):
     twii = hist_data.get('大盤', {})
     spy  = hist_data.get('SPY',  {})
     sox  = hist_data.get('費半', {})
@@ -296,8 +341,21 @@ def fmt_daily(hist_data, rt, ind, score, signals,
         "",
         f"**{light} {title}**",
         f"    {action}",
-        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        "",
+        "**🔭 近期回測機率預測**",
     ]
+    if pred:
+        lines += [
+            f"    {pred['emoji']} 機率：**{pred['level']}**（{pred['score']}/100）",
+            f"    可能幅度：`{pred['range']}`",
+            f"    建議：{pred['advice']}",
+        ]
+        if pred['signals']:
+            lines.append("    依據：" + " ｜ ".join(pred['signals']))
+        else:
+            lines.append("    依據：目前無過熱訊號，市場相對健康")
+        lines.append("    ⚠️ 統計機率，不保證發生。仍需等真實觸發門檻才行動。")
+    lines.append("━━━━━━━━━━━━━━━━━━━━━━━━")
     return "\n".join(lines)
 
 def fmt_alert(price, drawdown, ind, score, signals,
@@ -364,7 +422,9 @@ async def job_daily_report():
     score, signals = convergence_score(actual_dd, ind, foreign)
     light, title, action = get_signal(actual_dd, score)
     hist_prob = historical_prob(actual_dd)
-    msg = fmt_daily(hist, rt, ind, score, signals, light, title, action, hist_prob, foreign, now)
+    closes_list = list(p0['close'])
+    pred = predict_correction(closes_list, ind['RSI'], ind['BIAS20'], ind['BIAS60'])
+    msg = fmt_daily(hist, rt, ind, score, signals, light, title, action, hist_prob, foreign, now, pred)
     for ch in channels:
         await ch.send(msg)
         log.info(f"日報發送至 {ch.guild.name}")
