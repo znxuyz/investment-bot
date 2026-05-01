@@ -7,7 +7,6 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 import discord
 from discord.ext import commands
-import yfinance as yf
 import pandas as pd
 import requests
 import asyncio
@@ -101,31 +100,72 @@ def fetch_0050_realtime():
         log.warning(f"TWSE API: {e}")
     return None
 
-def fetch_historical_data():
-    symbols = {
-        '0050': '0050.TW', '大盤': '^TWII',
-        'SPY': 'SPY', 'QQQ': 'QQQ',
-        'VIX': '^VIX', '費半': '^SOX',
-    }
-    result = {}
-    for name, ticker in symbols.items():
+def fetch_twse_history(stock_no, months=6):
+    """用 TWSE 官方 API 抓歷史日K，回傳 closes 和 dates 列表"""
+    closes, dates = [], []
+    now = datetime.now(TW_TZ)
+    for i in range(months-1, -1, -1):
+        d = datetime(now.year, now.month, 1, tzinfo=TW_TZ)
+        # 往回推 i 個月
+        m = d.month - i
+        y = d.year
+        while m <= 0:
+            m += 12; y -= 1
+        date_str = f"{y}{str(m).padStart if False else str(m).zfill(2)}01"
+        url = (f"https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY"
+               f"?stockNo={stock_no}&date={date_str}&response=json")
         try:
-            df = yf.download(ticker, period='6mo', interval='1d',
-                             progress=False, auto_adjust=True)
-            if not df.empty:
-                p    = float(df['Close'].iloc[-1])
-                prev = float(df['Close'].iloc[-2])
-                h60  = float(df['Close'].rolling(60).max().iloc[-1])
-                result[name] = {
-                    'price':    p,
-                    'prev':     prev,
-                    'chg':      (p - prev) / prev * 100,
-                    'high60':   h60,
-                    'drawdown': (p - h60) / h60 * 100,
-                    'close':    df['Close'],
-                }
+            r = requests.get(url, headers=TWSE_HEADERS, timeout=10)
+            data = r.json()
+            if data.get('stat') == 'OK' and data.get('data'):
+                for row in data['data']:
+                    try:
+                        c = float(row[6].replace(',', ''))
+                        if c > 0:
+                            closes.append(c)
+                            dates.append(row[0])  # 民國年日期
+                    except:
+                        pass
         except Exception as e:
-            log.warning(f"yfinance {name}: {e}")
+            log.warning(f"TWSE 歷史 {stock_no} {date_str}: {e}")
+    return closes, dates
+
+def twse_date_to_str(twse_date):
+    """民國年轉西元年，例如 114/05/01 → 2025/05/01"""
+    try:
+        parts = twse_date.split('/')
+        if len(parts) == 3:
+            return f"{int(parts[0])+1911}/{parts[1]}/{parts[2]}"
+    except:
+        pass
+    return twse_date
+
+def fetch_historical_data():
+    """用 TWSE 官方 API 抓 0050 歷史資料"""
+    result = {}
+    closes, dates = fetch_twse_history('0050', months=6)
+    if closes:
+        price  = closes[-1]
+        prev   = closes[-2] if len(closes) > 1 else closes[-1]
+        slice60= closes[-60:] if len(closes) >= 60 else closes
+        d60    = dates[-60:] if len(dates) >= 60 else dates
+        high60 = max(slice60)
+        hi_idx = slice60.index(high60)
+        hi_date= twse_date_to_str(d60[hi_idx]) if d60 else '--'
+        hi_days= len(slice60) - 1 - hi_idx
+        import pandas as pd
+        close_series = pd.Series(closes, dtype=float)
+        result['0050'] = {
+            'price':       price,
+            'prev':        prev,
+            'chg':         (price - prev) / prev * 100,
+            'high60':      high60,
+            'high60_date': hi_date,
+            'high60_days': hi_days,
+            'drawdown':    (price - high60) / high60 * 100,
+            'close':       close_series,
+        }
+        log.info(f"0050 歷史資料: {len(closes)}筆, 最新={price:.2f}")
     return result
 
 def fetch_foreign_flow():
@@ -381,19 +421,26 @@ def stock_signal(drawdown):
     return '🟢', '正常'
 
 def fetch_stock_data(code):
+    """用 TWSE 官方 API 抓個股歷史資料"""
     try:
-        df = yf.download(f"{code}.TW", period='6mo', interval='1d',
-                         progress=False, auto_adjust=True)
-        if df.empty: return None
-        closes = list(df['Close'])
-        price  = float(closes[-1])
-        slice_ = closes[-60:] if len(closes)>=60 else closes
-        high60 = float(max(slice_))
-        h60_idx = df['Close'].iloc[-60:].idxmax() if len(closes)>=60 else df['Close'].idxmax()
-        h60_date = h60_idx.strftime('%Y/%m/%d')
-        h60_days = len(df)-1-list(df.index).index(h60_idx)
-        return {'price':price,'high60':high60,'high60_date':h60_date,
-                'high60_days':h60_days,'drawdown':(price-high60)/high60*100,'closes':closes}
+        closes, dates = fetch_twse_history(code, months=3)
+        if not closes:
+            return None
+        price  = closes[-1]
+        slice_ = closes[-60:] if len(closes) >= 60 else closes
+        d_     = dates[-60:]  if len(dates)  >= 60 else dates
+        high60 = max(slice_)
+        hi_idx = slice_.index(high60)
+        hi_date= twse_date_to_str(d_[hi_idx]) if d_ else '--'
+        hi_days= len(slice_) - 1 - hi_idx
+        return {
+            'price':       price,
+            'high60':      high60,
+            'high60_date': hi_date,
+            'high60_days': hi_days,
+            'drawdown':    (price - high60) / high60 * 100,
+            'closes':      closes,
+        }
     except Exception as e:
         log.warning(f"個股 {code}: {e}")
         return None
