@@ -526,35 +526,6 @@ async def job_weekly_report():
     log.info(f"週報已發送至 {len(channels)} 個伺服器")
 
 
-# ── 指令 ──
-@bot.command(name='report')
-async def cmd_report(ctx):
-    """!report — 手動觸發完整日報"""
-    await ctx.send("⏳ 正在抓取資料...")
-    await job_daily_report()
-
-@bot.command(name='check')
-async def cmd_check(ctx):
-    """!check — 快速查看當前 0050 狀況"""
-    rt = fetch_0050_realtime()
-    hist = get_hist_cached()
-    if not rt or '0050' not in hist:
-        await ctx.send("⚠️ 無法取得資料，請稍後再試。")
-        return
-    high60   = hist['0050']['high60']
-    actual_dd = (rt['price'] - high60) / high60 * 100
-    p0        = hist['0050']
-    ind       = calc_indicators(p0['close'])
-    score, signals = convergence_score(actual_dd, ind, None)
-    light, title, action = get_signal(actual_dd, score)
-    await ctx.send("\n".join([
-        f"📈 **0050 即時狀況** ({rt['time']})",
-        f"現價：{rt['price']:.2f} 元  ({rt['chg']:+.2f}%)",
-        f"距近期高點：**{actual_dd:.2f}%**",
-        f"RSI：{ind['RSI']:.1f} ｜ 乖離率：{ind['BIAS20']:+.2f}%",
-        f"共振評分：{score}/100",
-        f"{light} **{title}**",
-    ]))
 
 # ── 共用回覆邏輯 ──
 async def _reply_set_channel(send_func, guild_id, channel_id, channel_name, guild_name):
