@@ -162,6 +162,7 @@ function render(history, todayClose, isToday){
   const r=rsi(closes), b20=bias(closes,20), b60=bias(closes,60);
   const m20=ma(closes,20), m60=ma(closes,60), mc=macd(closes);
   const{score,sigs}=cvscore(dd,r,b20,mc.h,0);
+  const pred=predictCorrection(closes,r,b20,b60);
   const sig=signal(dd,score);
   const prob=histProb(dd);
   const sc=score>=70?'var(--red)':score>=40?'var(--yellow)':'var(--green)';
@@ -249,7 +250,60 @@ function render(history, todayClose, isToday){
         ${b.active?'<span style="margin-left:auto;font-size:18px">👈</span>':''}
       </div>`).join('')}
     </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <div class="ct">🔭 近期回測機率預測</div>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="text-align:center;flex-shrink:0">
+        <div style="font-size:38px;line-height:1">${pred.emoji}</div>
+        <div style="font-family:var(--mono);font-size:24px;font-weight:700;color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.score}<small style="font-size:11px;color:var(--muted)">/100</small></div>
+        <div style="font-size:11px;color:var(--muted)">回測機率</div>
+      </div>
+      <div style="flex:1;min-width:150px">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px">機率等級：<span style="color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.level}</span></div>
+        <div style="font-size:13px;margin-bottom:8px">可能幅度：<span style="font-family:var(--mono);font-weight:700">${pred.range}</span></div>
+        <div style="font-size:12px;color:var(--muted);background:rgba(255,255,255,0.03);padding:8px 10px;border-radius:6px;border-left:3px solid ${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.advice}</div>
+      </div>
+    </div>
+    <div style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)">評估依據</div>
+    ${pred.signals.length?pred.signals.map(s=>`<span class="stag">${s}</span>`).join(''):'<span style="color:var(--muted);font-size:12px">目前無過熱訊號，市場相對健康</span>'}
+    <div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);line-height:1.7">
+      ⚠️ 此為統計機率，不保證一定發生。回測機率高代表應備妥子彈，仍需等真實觸發門檻（-8%/-15%/-20%）才行動。
+    </div>
   </div>`;
+}
+
+// ── 回測機率預測 ──
+function predictCorrection(closes,rsi,bias20,bias60){
+  let score=0; const signals=[]; const price=closes[closes.length-1];
+  if(rsi>75){score+=25;signals.push(`RSI ${rsi.toFixed(1)} 嚴重過熱`);}
+  else if(rsi>70){score+=15;signals.push(`RSI ${rsi.toFixed(1)} 過熱`);}
+  else if(rsi>65){score+=8;signals.push(`RSI ${rsi.toFixed(1)} 偏熱`);}
+  if(bias20>8){score+=20;signals.push(`乖離率 +${bias20.toFixed(1)}% 嚴重偏高`);}
+  else if(bias20>5){score+=13;signals.push(`乖離率 +${bias20.toFixed(1)}% 偏高`);}
+  else if(bias20>3){score+=6;signals.push(`乖離率 +${bias20.toFixed(1)}% 略偏高`);}
+  if(closes.length>=30){
+    const rise30=(price-closes[closes.length-30])/closes[closes.length-30]*100;
+    if(rise30>20){score+=20;signals.push(`近30日漲 +${rise30.toFixed(1)}% 過大`);}
+    else if(rise30>12){score+=12;signals.push(`近30日漲 +${rise30.toFixed(1)}% 偏大`);}
+    else if(rise30>7){score+=5;signals.push(`近30日漲 +${rise30.toFixed(1)}%`);}
+  }
+  if(bias60>10){score+=15;signals.push(`60日乖離 +${bias60.toFixed(1)}% 嚴重過高`);}
+  else if(bias60>6){score+=8;signals.push(`60日乖離 +${bias60.toFixed(1)}% 偏高`);}
+  if(closes.length>=10){
+    const rec=closes.slice(-10);
+    const up=rec.filter((v,i)=>i>0&&v>rec[i-1]).length;
+    if(up>=8){score+=15;signals.push(`近10日 ${up} 天連漲過度`);}
+    else if(up>=6){score+=7;signals.push(`近10日 ${up} 天上漲`);}
+  }
+  score=Math.min(score,100);
+  let range,level,emoji,advice;
+  if(score>=70){range='-12%~-20%';level='高';emoji='🔴';advice='子彈備妥，等真實觸發立刻行動';}
+  else if(score>=45){range='-8%~-15%';level='中';emoji='🟡';advice='留意回檔訊號，子彈先別動';}
+  else if(score>=20){range='-5%~-10%';level='低';emoji='🟢';advice='市場尚穩，繼續定額即可';}
+  else{range='-3%~-7%';level='極低';emoji='🟢';advice='無明顯回測疑慮，正常持有';}
+  return{score,signals,range,level,emoji,advice};
 }
 
 // ── 主流程 ──
