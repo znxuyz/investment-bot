@@ -16,7 +16,7 @@ import pytz
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ── 設定 ──
-BOT_TOKEN = "你的BOT_TOKEN"
+BOT_TOKEN = "MTQ5OTU0ODg5NTM0MzE1MzI2NA.GZ2F2V.B5Bs_mJ8VYn-B2n9uizveIzVlNvGbb5j-QFSpo"
 TW_TZ     = pytz.timezone('Asia/Taipei')
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s [%(levelname)s] %(message)s')
