@@ -65,22 +65,33 @@ async def get_all_channels():
 #  資料抓取
 # ══════════════════════════════════════════
 def fetch_0050_realtime():
+    """
+    抓取 0050 即時價格。
+    盤中：回傳即時成交價。
+    休市/收盤：TWSE 的 z 欄位為 '-'，改用 y（昨收）當作最後收盤價顯示。
+    """
     url = ("https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
            "?ex_ch=tse_0050.tw&json=1&delay=0")
     try:
         r    = requests.get(url, headers=TWSE_HEADERS, timeout=10)
         data = r.json()
         if data.get('rtmessage') == 'OK' and data.get('msgArray'):
-            item  = data['msgArray'][0]
-            price = float(item.get('z') or item.get('y') or 0)
-            ref   = float(item.get('y') or 0)
+            item    = data['msgArray'][0]
+            z       = item.get('z', '-')   # 最新成交價（盤中有值，休市為 '-'）
+            y       = item.get('y', '0')   # 昨收價（永遠有值）
+            is_open = z not in ('', '-', None)  # 是否有盤中成交
+
+            price = float(z if is_open else y)
+            ref   = float(y or 0)
             if price == 0:
                 return None
+
             return {
-                'price': price,
-                'ref':   ref,
-                'chg':   (price - ref) / ref * 100 if ref else 0,
-                'time':  item.get('t', '--'),
+                'price':   price,
+                'ref':     ref,
+                'chg':     (price - ref) / ref * 100 if ref else 0,
+                'time':    item.get('t', '--') if is_open else '收盤價',
+                'is_open': is_open,   # True=盤中, False=休市/收盤
             }
     except Exception as e:
         log.warning(f"TWSE API: {e}")
@@ -441,16 +452,18 @@ async def _do_check(send):
     rt   = fetch_0050_realtime()
     hist = get_hist_cached()
     if not rt or '0050' not in hist:
-        await send("⚠️ 無法取得資料（休市或網路問題），請稍後再試。")
+        await send("⚠️ 無法取得資料，請稍後再試。")
         return
     high60    = hist['0050']['high60']
     actual_dd = (rt['price'] - high60) / high60 * 100
     ind       = calc_indicators(hist['0050']['close'])
     score, _  = convergence_score(actual_dd, ind, None)
     light, title, _ = get_signal(actual_dd, score)
+    is_open   = rt.get('is_open', True)
+    status    = "盤中即時" if is_open else "最後收盤價（休市中）"
     await send("\n".join([
-        f"📈 **0050 即時狀況** ({rt['time']})",
-        f"現價：{rt['price']:.2f} 元  ({rt['chg']:+.2f}%)",
+        f"📈 **0050 狀況** ｜ {status}",
+        f"價格：{rt['price']:.2f} 元  ({rt['chg']:+.2f}%)",
         f"距近期高點：**{actual_dd:.2f}%**",
         f"RSI：{ind['RSI']:.1f} ｜ 乖離率：{ind['BIAS20']:+.2f}%",
         f"共振評分：{score}/100",
