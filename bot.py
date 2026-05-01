@@ -1,6 +1,10 @@
 """
 📊 投資監控 Discord 機器人 v3
 """
+import os
+import json
+from datetime import date
+from dateutil.relativedelta import relativedelta
 import discord
 from discord.ext import commands
 import yfinance as yf
@@ -224,6 +228,70 @@ HIST = {
     8:  {'count': 23, 'rec': 19, 'days': 60,  'bounce': 11.2, 'maxdrop': 18.5},
 }
 
+# ── 個股追蹤 ──
+WATCH_STOCKS = [
+    {'name': '台積電', 'code': '2330'},
+    {'name': '聯發科', 'code': '2454'},
+    {'name': '日月光', 'code': '3711'},
+]
+
+def stock_signal(drawdown):
+    if drawdown <= -30: return '🔴', '清倉警示'
+    if drawdown <= -25: return '🟠', '高度警戒'
+    if drawdown <= -15: return '🟡', '注意觀察'
+    return '🟢', '正常'
+
+def fetch_stock_data(code):
+    try:
+        df = yf.download(f"{code}.TW", period='6mo', interval='1d',
+                         progress=False, auto_adjust=True)
+        if df.empty: return None
+        closes = list(df['Close'])
+        price  = float(closes[-1])
+        slice_ = closes[-60:] if len(closes)>=60 else closes
+        high60 = float(max(slice_))
+        h60_idx = df['Close'].iloc[-60:].idxmax() if len(closes)>=60 else df['Close'].idxmax()
+        h60_date = h60_idx.strftime('%Y/%m/%d')
+        h60_days = len(df)-1-list(df.index).index(h60_idx)
+        return {'price':price,'high60':high60,'high60_date':h60_date,
+                'high60_days':h60_days,'drawdown':(price-high60)/high60*100,'closes':closes}
+    except Exception as e:
+        log.warning(f"個股 {code}: {e}")
+        return None
+
+def max_drawdown_since(closes, days_back=120):
+    slice_ = closes[-days_back:] if len(closes)>=days_back else closes
+    peak = slice_[0]; max_dd = 0.0
+    for c in slice_:
+        if c>peak: peak=c
+        dd=(c-peak)/peak*100
+        if dd<max_dd: max_dd=dd
+    return max_dd
+
+# ── 子彈閒置追蹤 ──
+IDLE_FILE = 'last_trigger.json'
+
+def load_last_trigger():
+    if os.path.exists(IDLE_FILE):
+        with open(IDLE_FILE) as f:
+            data = json.load(f)
+            return date.fromisoformat(data.get('date', str(date.today())))
+    return date.today()
+
+def save_last_trigger():
+    with open(IDLE_FILE,'w') as f:
+        json.dump({'date':str(date.today())},f)
+
+def bullet_idle_status():
+    last = load_last_trigger()
+    now  = date.today()
+    diff = relativedelta(now, last)
+    months = diff.years*12 + diff.months
+    if months>=12: emoji,advice='⚠️',f'市場長期無大回檔，建議投入子彈的 **80%**'
+    elif months>=6: emoji,advice='⏰',f'建議投入子彈的 **50%**，剩餘繼續等門檻'
+    else: emoji,advice='🟢','繼續等待，保留子彈'
+    return months, emoji, advice, last
+
 def predict_correction(closes, rsi, bias20, bias60):
     """根據技術指標預測近期回測機率"""
     score = 0
@@ -321,6 +389,7 @@ def fmt_daily(hist_data, rt, ind, score, signals,
         f"🇹🇼 **大盤**：{twii.get('price',0):,.0f} 點  ({twii.get('chg',0):+.2f}%)",
         f"📈 **0050**：{price:.2f} 元  ({chg:+.2f}%) {rt_time}",
         f"    距近期高點回檔：**{drawdown:.2f}%**",
+        f"    近期高點：{hist_data.get('0050',{}).get('high60',0):.2f} 元｜{hist_data.get('0050',{}).get('high60_date','--')}｜距今 {hist_data.get('0050',{}).get('high60_days',0)} 個交易日",
         "",
         "**🔬 技術指標**",
         f"    RSI：{ind['RSI']:.1f}  {'⚠️ 超賣' if ind['RSI']<30 else '⚠️ 超買' if ind['RSI']>70 else '✅ 正常'}",
@@ -366,6 +435,7 @@ def fmt_alert(price, drawdown, ind, score, signals,
         "━━━━━━━━━━━━━━━━━━━━━━━━",
         f"0050：**{price:.2f} 元** （{rt_time}）",
         f"距近期高點：**{drawdown:.2f}%**",
+        f"（詳細高點資訊請見每日日報）",
         "",
         f"RSI：{ind['RSI']:.1f} ｜ 乖離率：{ind['BIAS20']:+.2f}%",
         f"MACD：{'↗️ 翻正' if ind['MACDhist']>0 else '↘️ 負值'}",
@@ -425,8 +495,39 @@ async def job_daily_report():
     closes_list = list(p0['close'])
     pred = predict_correction(closes_list, ind['RSI'], ind['BIAS20'], ind['BIAS60'])
     msg = fmt_daily(hist, rt, ind, score, signals, light, title, action, hist_prob, foreign, now, pred)
+
+    # 個股監控
+    stock_lines = ["", "**📌 個股持倉監控**"]
+    alert_msgs  = []
+    for st in WATCH_STOCKS:
+        sd = fetch_stock_data(st['code'])
+        if sd:
+            ls, ll = stock_signal(sd['drawdown'])
+            stock_lines.append(f"{st['name']} {st['code']}｜{sd['price']:.2f} 元｜{sd['drawdown']:.2f}%｜{ls} {ll}")
+            if sd['drawdown'] <= -25:
+                alert_msgs.append("\n".join([
+                    "━━━━━━━━━━━━━━━━━━━━━━━━",
+                    f"{'🚨' if sd['drawdown']<=-30 else '⚠️'} **個股{ll}** ｜ {now.strftime('%H:%M')}",
+                    "━━━━━━━━━━━━━━━━━━━━━━━━",
+                    f"**{st['name']} {st['code']}** 現價：{sd['price']:.2f} 元",
+                    f"距近期高點：**{sd['drawdown']:.2f}%**",
+                    f"近期高點：{sd['high60']:.2f} 元｜{sd['high60_date']}｜距今 {sd['high60_days']} 個交易日",
+                    f"{ls} **{ll}**｜個股無自動汰換機制，建議重新評估基本面",
+                    "━━━━━━━━━━━━━━━━━━━━━━━━",
+                ]))
+        else:
+            stock_lines.append(f"{st['name']} {st['code']}｜資料取得失敗")
+
+    # 子彈閒置
+    idle_months, idle_emoji, idle_advice, _ = bullet_idle_status()
+    idle_line = f"\n**💰 子彈閒置**｜{idle_emoji} {idle_months}個月無觸發｜{idle_advice}"
+    full_msg = msg + "\n".join(stock_lines) + idle_line + "\n━━━━━━━━━━━━━━━━━━━━━━━━"
+
     for ch in channels:
-        await ch.send(msg)
+        if alert_msgs:
+            for am in alert_msgs:
+                await ch.send(am)
+        await ch.send(full_msg)
         log.info(f"日報發送至 {ch.guild.name}")
 
 async def job_price_check():
@@ -451,6 +552,7 @@ async def job_price_check():
     if level <= _last_alert_lvl:
         return
     _last_alert_lvl = level
+    save_last_trigger()
     channels = await get_all_channels()
     if not channels:
         return
@@ -525,6 +627,7 @@ async def _do_check(send):
         f"📈 **0050 狀況** ｜ {status}",
         f"價格：{rt['price']:.2f} 元  ({rt['chg']:+.2f}%)",
         f"距近期高點：**{actual_dd:.2f}%**",
+        f"近期高點：{hist.get('0050',{}).get('high60',0):.2f} 元｜{hist.get('0050',{}).get('high60_date','--')}｜距今 {hist.get('0050',{}).get('high60_days',0)} 個交易日",
         f"RSI：{ind['RSI']:.1f} ｜ 乖離率：{ind['BIAS20']:+.2f}%",
         f"共振評分：{score}/100",
         f"{light} **{title}**",
@@ -573,6 +676,36 @@ async def slash_check(interaction: discord.Interaction):
     await interaction.response.defer()
     await _do_check(interaction.followup.send)
 
+@bot.tree.command(name="個股", description="查看台積電、聯發科、日月光即時持倉狀況")
+async def slash_stocks(interaction: discord.Interaction):
+    await interaction.response.defer()
+    lines = ["**📌 個股持倉監控**", ""]
+    for st in WATCH_STOCKS:
+        sd = fetch_stock_data(st['code'])
+        if sd:
+            ls, ll = stock_signal(sd['drawdown'])
+            lines += [
+                f"**{st['name']} {st['code']}**",
+                f"現價：{sd['price']:.2f} 元",
+                f"距高點：{sd['drawdown']:.2f}%｜高點 {sd['high60']:.2f}（{sd['high60_date']}，{sd['high60_days']}日前）",
+                f"狀態：{ls} {ll}", "",
+            ]
+        else:
+            lines += [f"**{st['name']}**：無法取得資料", ""]
+    await interaction.followup.send("\n".join(lines))
+
+@bot.command(name='個股')
+async def cmd_stocks(ctx):
+    lines = ["**📌 個股持倉監控**", ""]
+    for st in WATCH_STOCKS:
+        sd = fetch_stock_data(st['code'])
+        if sd:
+            ls, ll = stock_signal(sd['drawdown'])
+            lines += [f"**{st['name']} {st['code']}** {sd['price']:.2f}元｜{sd['drawdown']:.2f}%｜{ls} {ll}", ""]
+        else:
+            lines += [f"**{st['name']}**：無法取得資料", ""]
+    await ctx.send("\n".join(lines))
+
 @bot.tree.command(name="說明", description="顯示所有指令說明")
 async def slash_help(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -582,11 +715,38 @@ async def slash_help(interaction: discord.Interaction):
 #  啟動
 # ══════════════════════════════════════════
 @bot.event
+async def job_monthly_idle_check():
+    channels = await get_all_channels()
+    if not channels: return
+    idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
+    if idle_months < 3: return
+    hist = get_hist_cached()
+    max_dd_txt = '--'
+    if '0050' in hist:
+        closes = list(hist['0050']['close'])
+        max_dd = max_drawdown_since(closes, idle_months*21)
+        max_dd_txt = f'{max_dd:.2f}%'
+    msg = "\n".join([
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"{idle_emoji} **子彈閒置提醒** ｜ {date.today().strftime('%Y/%m/%d')}",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"距上次觸發加碼門檻：**{idle_months} 個月**",
+        f"（上次觸發：{last_trigger.strftime('%Y/%m/%d')}）",
+        f"這段期間 0050 最大回檔：{max_dd_txt}",
+        "",
+        idle_advice,
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+    ])
+    for ch in channels:
+        await ch.send(msg)
+    log.info(f"每月閒置提醒：{idle_months}個月")
+
 async def on_ready():
     log.info(f"Bot 上線：{bot.user}")
 
     scheduler.add_job(job_daily_report,  'cron', hour=9, minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9, minute=0, day_of_week='mon')
+    scheduler.add_job(job_monthly_idle_check, 'cron', hour=9, minute=0, day=1)
 
     async def random_check():
         while True:
