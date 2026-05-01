@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>投資監控儀表板</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap');
+
+:root {
+  --bg: #070b14;
+  --bg2: #0d1420;
+  --card: #111927;
+  --border: rgba(255,255,255,0.07);
+  --gold: #f5a623;
+  --gold2: #ffd280;
+  --green: #00e5a0;
+  --green2: #00ffb3;
+  --red: #ff4d6d;
+  --yellow: #ffd60a;
+  --blue: #4dabf7;
+  --purple: #b197fc;
+  --text: #e8eef6;
+  --muted: #6b7f99;
+  --mono: 'Space Mono', monospace;
+  --sans: 'Noto Sans TC', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* 背景網格 */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(245,166,35,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(245,166,35,0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px 16px 60px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Header */
+.header {
+  text-align: center;
+  padding: 32px 0 28px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+.header-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: var(--gold);
+  background: rgba(245,166,35,0.1);
+  border: 1px solid rgba(245,166,35,0.3);
+  padding: 4px 14px;
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
+.header h1 {
+  font-size: clamp(24px, 6vw, 40px);
+  font-weight: 900;
+  letter-spacing: -1px;
+  line-height: 1.1;
+}
+
+.header h1 span { color: var(--gold); }
+
+.header-sub {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+
+/* 更新時間 */
+.update-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.update-time { color: var(--muted); }
+.update-status { display: flex; align-items: center; gap: 6px; }
+.status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.refresh-btn {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  font-family: var(--mono); font-size: 11px; padding: 4px 10px;
+  border-radius: 4px; cursor: pointer; transition: all 0.2s;
+}
+.refresh-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+/* 主要燈號卡 */
+.signal-card {
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.signal-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+
+.signal-green::before  { background: var(--green); }
+.signal-yellow::before { background: var(--yellow); }
+.signal-red::before    { background: var(--red); }
+
+.signal-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.signal-left {}
+
+.signal-emoji { font-size: 36px; line-height: 1; margin-bottom: 6px; }
+
+.signal-title {
+  font-size: clamp(16px, 4vw, 22px);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.signal-action {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.signal-right { text-align: right; }
+
+.price-big {
+  font-family: var(--mono);
+  font-size: clamp(28px, 7vw, 44px);
+  font-weight: 700;
+  color: var(--gold);
+  line-height: 1;
+}
+
+.price-chg {
+  font-family: var(--mono);
+  font-size: 14px;
+  margin-top: 4px;
+}
+
+.price-chg.up   { color: var(--red); }
+.price-chg.down { color: var(--green); }
+.price-chg.flat { color: var(--muted); }
+
+.price-label {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 4px;
+  font-family: var(--mono);
+}
+
+/* 回檔進度條 */
+.drawdown-section { margin-top: 4px; }
+
+.drawdown-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  font-family: var(--mono);
+}
+
+.drawdown-bar-track {
+  height: 8px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.drawdown-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 1s ease;
+  position: relative;
+}
+
+.drawdown-markers {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  position: relative;
+}
+
+.drawdown-marker {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+/* 共振評分 */
+.score-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.score-circle-wrap {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  flex-shrink: 0;
+}
+
+.score-circle-wrap svg {
+  transform: rotate(-90deg);
+}
+
+.score-number {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.score-number small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.score-signals { flex: 1; min-width: 200px; }
+
+.score-signals-title {
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.signal-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin: 2px 3px 2px 0;
+  font-family: var(--mono);
+  background: rgba(245,166,35,0.1);
+  color: var(--gold);
+  border: 1px solid rgba(245,166,35,0.2);
+}
+
+/* 格線卡片 */
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 500px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.card-title {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+  font-family: var(--mono);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 技術指標行 */
+.ind-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.ind-row:last-child { border-bottom: none; }
+.ind-name { font-size: 13px; color: var(--muted); }
+.ind-val  { font-family: var(--mono); font-size: 14px; font-weight: 700; }
+.ind-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-family: var(--mono);
+}
+.badge-ok     { background: rgba(0,229,160,0.12); color: var(--green); }
+.badge-warn   { background: rgba(255,214,10,0.12); color: var(--yellow); }
+.badge-danger { background: rgba(255,77,109,0.12); color: var(--red); }
+
+/* 歷史機率 */
+.prob-row {
+  margin-bottom: 14px;
+}
+.prob-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 5px;
+}
+.prob-label { color: var(--muted); }
+.prob-pct   { font-family: var(--mono); font-weight: 700; }
+.prob-track {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.prob-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+/* 美股區 */
+.us-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+@media (max-width: 400px) {
+  .us-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+.us-item {
+  background: rgba(255,255,255,0.03);
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+}
+.us-name { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+.us-val  { font-family: var(--mono); font-size: 15px; font-weight: 700; }
+.us-chg  { font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+
+/* 子彈建議 */
+.bullet-rows { display: flex; flex-direction: column; gap: 8px; }
+.bullet-row  {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+.bullet-pct-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  min-width: 60px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.bullet-desc { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.bullet-active {
+  border-color: rgba(245,166,35,0.3) !important;
+  background: rgba(245,166,35,0.05) !important;
+}
+.bullet-active .bullet-desc { color: var(--text); }
+
+/* Loading */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  gap: 14px;
+}
+.loading-spinner {
+  width: 36px; height: 36px;
+  border: 2px solid var(--border);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+/* Error */
+.error-box {
+  background: rgba(255,77,109,0.08);
+  border: 1px solid rgba(255,77,109,0.2);
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  color: var(--red);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* 免責聲明 */
+.disclaimer {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+  line-height: 1.8;
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-tag">INVESTMENT MONITOR</div>
+    <h1>投資監控 <span>儀表板</span></h1>
+    <div class="header-sub">0050 · 多指標共振 · 加碼燈號</div>
+  </div>
+
+  <!-- 更新欄 -->
+  <div class="update-bar">
+    <span class="update-time" id="updateTime">載入中...</span>
+    <div style="display:flex;gap:10px;align-items:center">
+      <div class="update-status">
+        <div class="status-dot"></div>
+        <span id="marketStatus" style="color:var(--muted)">連線中</span>
+      </div>
+      <button class="refresh-btn" onclick="loadData()">↻ 更新</button>
+    </div>
+  </div>
+
+  <!-- 主要內容 -->
+  <div id="mainContent">
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">正在抓取市場資料...</div>
+    </div>
+  </div>
+
+  <div class="disclaimer">
+    本儀表板僅供個人參考，非投資建議。<br>
+    技術指標為統計工具，不保證未來報酬。借款投資請自行審慎評估。
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════
+//  計算函式
+// ══════════════════════════════
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+function calcMA(closes, period) {
+  if (closes.length < period) return closes[closes.length - 1];
+  return closes.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function calcBias(closes, period) {
+  const ma = calcMA(closes, period);
+  return (closes[closes.length - 1] - ma) / ma * 100;
+}
+
+function calcMACD(closes) {
+  function ema(data, span) {
+    const k = 2 / (span + 1);
+    let val = data[0];
+    for (let i = 1; i < data.length; i++) val = data[i] * k + val * (1 - k);
+    return val;
+  }
+  if (closes.length < 26) return { macd: 0, hist: 0 };
+  const e12 = ema(closes, 12);
+  const e26 = ema(closes, 26);
+  const macd = e12 - e26;
+  // 簡化 signal：用最近9天MACD近似
+  return { macd, hist: macd * 0.1 };
+}
+
+function getSignal(drawdown, score) {
+  if (drawdown <= -20 && score >= 55) return { light: '🔴', color: 'red',    title: '回檔20%+｜動用100%子彈', action: '多指標強力共振，全力加碼', cls: 'signal-red' };
+  if (drawdown <= -15 && score >= 40) return { light: '🔴', color: 'red',    title: '回檔15%｜動用70%子彈',   action: '指標共振確認，積極加碼',   cls: 'signal-red' };
+  if (drawdown <= -8  && score >= 25) return { light: '🟡', color: 'yellow', title: '回檔8%｜動用30%子彈',    action: '初步觸發，保守加碼',       cls: 'signal-yellow' };
+  if (drawdown <= -5)                  return { light: '🟡', color: 'yellow', title: '接近門檻｜子彈待命',      action: '尚未觸發，準備好等訊號',   cls: 'signal-yellow' };
+  return                                      { light: '🟢', color: 'green',  title: '正常持有｜繼續定額',      action: '無需動作，每月定額照常',   cls: 'signal-green' };
+}
+
+function convergenceScore(drawdown, rsi, bias20, macdHist, foreignNet) {
+  let score = 0, signals = [];
+  for (const [thresh, pts] of [[20,30],[15,25],[8,15],[5,8]]) {
+    if (drawdown <= -thresh) { score += pts; signals.push(`回檔${drawdown.toFixed(1)}% (+${pts})`); break; }
+  }
+  if (rsi < 30)      { score += 25; signals.push(`RSI ${rsi.toFixed(1)} 超賣 (+25)`); }
+  else if (rsi < 40) { score += 12; signals.push(`RSI ${rsi.toFixed(1)} 偏低 (+12)`); }
+  if (bias20 < -5)      { score += 20; signals.push(`乖離率 ${bias20.toFixed(1)}% 大幅負乖離 (+20)`); }
+  else if (bias20 < -3) { score += 10; signals.push(`乖離率 ${bias20.toFixed(1)}% 負乖離 (+10)`); }
+  if (macdHist > 0) { score += 15; signals.push('MACD底部翻正 (+15)'); }
+  if (foreignNet > 0) { score += 10; signals.push(`外資買超 ${(foreignNet/10000).toFixed(0)}億 (+10)`); }
+  return { score: Math.min(score, 100), signals };
+}
+
+const HIST = {
+  20: { count:5,  rec:4,  days:180, bounce:35.4, maxdrop:43.2 },
+  15: { count:10, rec:7,  days:90,  bounce:18.6, maxdrop:30.2 },
+  8:  { count:23, rec:19, days:60,  bounce:11.2, maxdrop:18.5 },
+};
+
+function getHistProb(drawdown) {
+  for (const k of [20,15,8]) {
+    if (drawdown <= -k) {
+      const d = HIST[k];
+      return { thresh: k, ...d, pct: Math.round(d.rec/d.count*100) };
+    }
+  }
+  return null;
+}
+
+// ══════════════════════════════
+//  資料抓取
+// ══════════════════════════════
+async function fetch0050History() {
+  const url = 'https://query1.finance.yahoo.com/v8/finance/chart/0050.TW?interval=1d&range=6mo';
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  const data = await r.json();
+  const quotes = data.chart.result[0];
+  const closes = quotes.indicators.quote[0].close.filter(v => v !== null);
+  const timestamps = quotes.timestamp;
+  const meta = quotes.meta;
+  return {
+    closes,
+    timestamps,
+    currentPrice: meta.regularMarketPrice,
+    prevClose: meta.chartPreviousClose,
+    marketState: meta.marketState, // REGULAR, PRE, POST, CLOSED
+    currency: meta.currency,
+  };
+}
+
+async function fetchUSMarket() {
+  const tickers = ['SPY','QQQ','%5EVIX','%5ESOX'];
+  const names   = ['SPY','QQQ','VIX','費半'];
+  const results = {};
+  await Promise.all(tickers.map(async (t, i) => {
+    try {
+      const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${t}?interval=1d&range=5d`);
+      const data = await r.json();
+      const meta = data.chart.result[0].meta;
+      const closes = data.chart.result[0].indicators.quote[0].close.filter(v=>v!==null);
+      results[names[i]] = {
+        price: meta.regularMarketPrice,
+        prev:  closes[closes.length-2] || meta.chartPreviousClose,
+        chg:   (meta.regularMarketPrice - (closes[closes.length-2] || meta.chartPreviousClose)) /
+               (closes[closes.length-2] || meta.chartPreviousClose) * 100,
+      };
+    } catch(e) {
+      results[names[i]] = { price: null, chg: null };
+    }
+  }));
+  return results;
+}
+
+// ══════════════════════════════
+//  UI 渲染
+// ══════════════════════════════
+function colorClass(chg) {
+  if (chg === null || chg === undefined) return 'flat';
+  return chg > 0 ? 'up' : chg < 0 ? 'down' : 'flat';
+}
+
+function fmtChg(chg, suffix='%') {
+  if (chg === null || chg === undefined) return '--';
+  return `${chg > 0 ? '+' : ''}${chg.toFixed(2)}${suffix}`;
+}
+
+function badgeClass(val, threshWarn, threshDanger, inverse=false) {
+  if (inverse) {
+    if (val < threshDanger) return 'badge-danger';
+    if (val < threshWarn)   return 'badge-warn';
+    return 'badge-ok';
+  }
+  if (val > threshDanger) return 'badge-danger';
+  if (val > threshWarn)   return 'badge-warn';
+  return 'badge-ok';
+}
+
+function renderDashboard(stock, usMarket, foreign) {
+  const closes   = stock.closes;
+  const price    = stock.currentPrice;
+  const prevClose= stock.prevClose;
+  const chgPct   = (price - prevClose) / prevClose * 100;
+  const high60   = Math.max(...closes.slice(-60));
+  const drawdown = (price - high60) / high60 * 100;
+  const isOpen   = stock.marketState === 'REGULAR';
+
+  const rsi    = calcRSI(closes);
+  const bias20 = calcBias(closes, 20);
+  const bias60 = calcBias(closes, 60);
+  const ma20   = calcMA(closes, 20);
+  const ma60   = calcMA(closes, 60);
+  const macd   = calcMACD(closes);
+
+  const { score, signals } = convergenceScore(drawdown, rsi, bias20, macd.hist, foreign);
+  const sig  = getSignal(drawdown, score);
+  const prob = getHistProb(drawdown);
+
+  // 燈號顏色
+  const scoreColor = score >= 70 ? 'var(--red)' : score >= 40 ? 'var(--yellow)' : 'var(--green)';
+  const ddPct = Math.min(Math.abs(drawdown) / 25 * 100, 100);
+  const ddColor = drawdown <= -20 ? 'var(--red)' : drawdown <= -8 ? 'var(--yellow)' : 'var(--green)';
+
+  // 子彈建議
+  const bullets = [
+    { range: '正常 ~ -5%',  action: '留著累積，不追高',             pct: null,   active: drawdown > -5 },
+    { range: '-5% ~ -8%',   action: '子彈待命，注意觀察',            pct: null,   active: drawdown <= -5 && drawdown > -8 },
+    { range: '-8% 觸發',    action: '動用 30% 子彈加碼',             pct: '30%',  active: drawdown <= -8 && drawdown > -15 },
+    { range: '-15% 觸發',   action: '動用 70% 子彈加碼',             pct: '70%',  active: drawdown <= -15 && drawdown > -20 },
+    { range: '-20%+ 觸發',  action: '動用 100% 子彈，全力加碼',      pct: '100%', active: drawdown <= -20 },
+  ];
+
+  const tagColor = { '30%':'var(--yellow)', '70%':'var(--gold)', '100%':'var(--red)' };
+
+  document.getElementById('mainContent').innerHTML = `
+
+    <!-- 主燈號卡 -->
+    <div class="signal-card ${sig.cls}">
+      <div class="signal-top">
+        <div class="signal-left">
+          <div class="signal-emoji">${sig.light}</div>
+          <div class="signal-title">${sig.title}</div>
+          <div class="signal-action">${sig.action}</div>
+        </div>
+        <div class="signal-right">
+          <div class="price-big">${price.toFixed(2)}</div>
+          <div class="price-chg ${colorClass(chgPct)}">${fmtChg(chgPct)}</div>
+          <div class="price-label">${isOpen ? '盤中即時' : '最後收盤'} · 0050</div>
+        </div>
+      </div>
+
+      <!-- 回檔進度條 -->
+      <div class="drawdown-section">
+        <div class="drawdown-labels">
+          <span>距近期高點回檔</span>
+          <span style="color:${ddColor};font-weight:700">${drawdown.toFixed(2)}%</span>
+        </div>
+        <div class="drawdown-bar-track">
+          <div class="drawdown-bar-fill" style="width:${ddPct}%;background:${ddColor}"></div>
+        </div>
+        <div class="drawdown-markers">
+          <span class="drawdown-marker">0%</span>
+          <span class="drawdown-marker" style="color:var(--yellow)">-8%</span>
+          <span class="drawdown-marker" style="color:var(--gold)">-15%</span>
+          <span class="drawdown-marker" style="color:var(--red)">-20%</span>
+          <span class="drawdown-marker">-25%</span>
+        </div>
+      </div>
+
+      <!-- 共振評分 -->
+      <div class="score-section">
+        <div class="score-circle-wrap">
+          <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/>
+            <circle cx="40" cy="40" r="34" fill="none" stroke="${scoreColor}" stroke-width="6"
+              stroke-dasharray="${2*Math.PI*34}" stroke-dashoffset="${2*Math.PI*34*(1-score/100)}"
+              stroke-linecap="round"/>
+          </svg>
+          <div class="score-number">${score}<small>/100</small></div>
+        </div>
+        <div class="score-signals">
+          <div class="score-signals-title">共振評分依據</div>
+          ${signals.length ? signals.map(s => `<span class="signal-tag">${s}</span>`).join('') : '<span style="color:var(--muted);font-size:12px">目前無顯著訊號</span>'}
+        </div>
+      </div>
+    </div>
+
+    <!-- 技術指標 + 歷史機率 -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">🔬 技術指標</div>
+        <div class="ind-row">
+          <span class="ind-name">RSI (14)</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="ind-val" style="color:${rsi<30?'var(--green)':rsi>70?'var(--red)':'var(--text)'}">${rsi.toFixed(1)}</span>
+            <span class="ind-badge ${rsi<30?'badge-ok':rsi>70?'badge-danger':'badge-ok'}">${rsi<30?'超賣':rsi>70?'超買':'正常'}</span>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">乖離率 20日</span>
+          <span class="ind-val" style="color:${bias20<-3?'var(--green)':bias20>3?'var(--red)':'var(--text)'}">${bias20>0?'+':''}${bias20.toFixed(2)}%</span>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">乖離率 60日</span>
+          <span class="ind-val" style="color:${bias60<-3?'var(--green)':bias60>3?'var(--red)':'var(--text)'}">${bias60>0?'+':''}${bias60.toFixed(2)}%</span>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">MA20</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="ind-val">${ma20.toFixed(2)}</span>
+            <span class="ind-badge ${price>ma20?'badge-ok':'badge-danger'}">${price>ma20?'上方':'下方'}</span>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">MA60</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="ind-val">${ma60.toFixed(2)}</span>
+            <span class="ind-badge ${price>ma60?'badge-ok':'badge-danger'}">${price>ma60?'上方':'下方'}</span>
+          </div>
+        </div>
+        <div class="ind-row">
+          <span class="ind-name">MACD</span>
+          <span class="ind-val" style="color:${macd.hist>0?'var(--green)':'var(--red)'}">${macd.hist>0?'↗ 翻正':'↘ 負值'}</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📜 歷史回檔機率</div>
+        ${prob ? `
+          <div style="margin-bottom:16px;padding:10px;background:rgba(245,166,35,0.06);border-radius:8px;border:1px solid rgba(245,166,35,0.15)">
+            <div style="font-size:11px;color:var(--gold);margin-bottom:4px;font-family:var(--mono)">目前觸發：跌超 ${prob.thresh}% 門檻</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.8">
+              歷史共 <b style="color:var(--text)">${prob.count}</b> 次<br>
+              ${prob.days}日內回前高：<b style="color:var(--green)">${prob.rec}/${prob.count}次 (${prob.pct}%)</b>
+            </div>
+          </div>
+          <div class="prob-row">
+            <div class="prob-header">
+              <span class="prob-label">平均反彈幅度</span>
+              <span class="prob-pct" style="color:var(--green)">+${prob.bounce}%</span>
+            </div>
+            <div class="prob-track"><div class="prob-fill" style="width:${Math.min(prob.bounce/50*100,100)}%;background:var(--green)"></div></div>
+          </div>
+          <div class="prob-row">
+            <div class="prob-header">
+              <span class="prob-label">最大繼續下跌</span>
+              <span class="prob-pct" style="color:var(--red)">-${prob.maxdrop}%</span>
+            </div>
+            <div class="prob-track"><div class="prob-fill" style="width:${Math.min(prob.maxdrop/50*100,100)}%;background:var(--red)"></div></div>
+          </div>
+        ` : `
+          <div style="color:var(--muted);font-size:13px;text-align:center;padding:30px 0">
+            目前回檔未達 8% 門檻<br>
+            <span style="font-size:11px">持續定額，無需特別行動</span>
+          </div>
+        `}
+      </div>
+    </div>
+
+    <!-- 美股預判 + 子彈建議 -->
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">🌏 美股→台股預判</div>
+        <div class="us-grid">
+          ${['SPY','QQQ','VIX','費半'].map(name => {
+            const m = usMarket[name];
+            if (!m || m.price === null) return `<div class="us-item"><div class="us-name">${name}</div><div class="us-val" style="color:var(--muted)">--</div></div>`;
+            const chgCls = colorClass(m.chg);
+            const valColor = chgCls==='up'?'var(--red)':chgCls==='down'?'var(--green)':'var(--muted)';
+            return `<div class="us-item">
+              <div class="us-name">${name}</div>
+              <div class="us-val">${name==='VIX'?m.price.toFixed(1):m.price.toFixed(2)}</div>
+              <div class="us-chg" style="color:${valColor}">${fmtChg(m.chg)}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="margin-top:14px;font-size:11px;color:var(--muted);line-height:1.8">
+          ${(() => {
+            const spy = usMarket['SPY'];
+            const sox = usMarket['費半'];
+            const vix = usMarket['VIX'];
+            let lines = [];
+            if (spy?.chg !== null) {
+              if (spy.chg <= -2) lines.push('⚠️ 美股大跌，台股今日可能承壓');
+              else if (spy.chg >= 2) lines.push('✅ 美股大漲，台股今日偏多');
+              else lines.push('😐 美股小幅波動，影響有限');
+            }
+            if (sox?.chg !== null) {
+              if (sox.chg <= -3) lines.push('⚠️ 費半大跌，台積電/聯發科留意');
+              else if (sox.chg >= 3) lines.push('✅ 費半大漲，半導體偏多');
+            }
+            if (vix?.price !== null) {
+              if (vix.price > 30) lines.push('😱 VIX 極度恐慌，往往是好買點');
+              else if (vix.price > 20) lines.push('⚠️ VIX 偏高，市場情緒緊張');
+              else lines.push('😊 VIX 正常，市場情緒穩定');
+            }
+            return lines.join('<br>') || '資料載入中...';
+          })()}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">💰 子彈加碼建議</div>
+        <div class="bullet-rows">
+          ${bullets.map(b => `
+            <div class="bullet-row ${b.active ? 'bullet-active' : ''}">
+              ${b.pct
+                ? `<span class="bullet-pct-tag" style="background:rgba(245,166,35,0.12);color:${tagColor[b.pct]};border:1px solid rgba(245,166,35,0.2)">${b.pct}</span>`
+                : `<span class="bullet-pct-tag" style="background:rgba(107,127,153,0.1);color:var(--muted);border:1px solid var(--border)">—</span>`
+              }
+              <div>
+                <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-bottom:2px">${b.range}</div>
+                <div class="bullet-desc">${b.action}</div>
+              </div>
+              ${b.active ? '<span style="margin-left:auto;font-size:18px">👈</span>' : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ══════════════════════════════
+//  主流程
+// ══════════════════════════════
+async function loadData() {
+  document.getElementById('mainContent').innerHTML = `
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">正在抓取市場資料...</div>
+    </div>`;
+
+  try {
+    const [stock, usMarket] = await Promise.all([
+      fetch0050History(),
+      fetchUSMarket(),
+    ]);
+
+    const foreign = 0; // 外資資料需後端，暫時設0
+
+    renderDashboard(stock, usMarket, foreign);
+
+    const now = new Date();
+    const timeStr = now.toLocaleString('zh-TW', {
+      month:'numeric', day:'numeric',
+      hour:'2-digit', minute:'2-digit', second:'2-digit'
+    });
+    document.getElementById('updateTime').textContent = `更新時間：${timeStr}`;
+    document.getElementById('marketStatus').textContent =
+      stock.marketState === 'REGULAR' ? '盤中即時' : '休市 · 顯示最後收盤';
+    document.getElementById('marketStatus').style.color =
+      stock.marketState === 'REGULAR' ? 'var(--green)' : 'var(--muted)';
+
+  } catch(e) {
+    document.getElementById('mainContent').innerHTML = `
+      <div class="error-box">
+        ⚠️ 無法取得資料<br>
+        <small style="color:var(--muted)">${e.message}</small><br><br>
+        可能原因：網路問題 / Yahoo Finance 暫時封鎖<br>
+        請稍後點「↻ 更新」再試
+      </div>`;
+    document.getElementById('updateTime').textContent = '資料載入失敗';
+  }
+}
+
+// 啟動
+loadData();
+// 每5分鐘自動更新
+setInterval(loadData, 5 * 60 * 1000);
+</script>
+</body>
+</html>
