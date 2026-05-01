@@ -709,6 +709,22 @@ async def job_daily_report():
     idle_line = f"\n**💰 子彈閒置**｜{idle_emoji} {idle_months}個月無觸發｜{idle_advice}"
     full_msg = msg + "\n".join(stock_lines) + idle_line + "\n━━━━━━━━━━━━━━━━━━━━━━━━"
 
+    # 推送 data.json 到 GitHub
+    try:
+        stocks_dict = {}
+        for st in WATCH_STOCKS:
+            sd = fetch_stock_data(st['code'])
+            if sd:
+                stocks_dict[st['code']] = {**st, **sd}
+        idle_m, idle_e, idle_a, last_t = bullet_idle_status()
+        data_json = build_data_json(
+            hist, rt, ind, score, signals, light, title, action,
+            pred, stocks_dict, idle_m, idle_e, idle_a, str(last_t), foreign, now
+        )
+        push_to_github(data_json)
+    except Exception as e:
+        log.warning(f"日報推送 data.json 失敗: {e}")
+
     for ch in channels:
         if alert_msgs:
             for am in alert_msgs:
@@ -856,6 +872,7 @@ async def slash_report(interaction: discord.Interaction):
     await interaction.response.defer()
     await interaction.followup.send("⏳ 正在抓取資料...")
     await job_daily_report()
+    await job_push_data()
 
 @bot.tree.command(name="check", description="快速查看當前 0050 即時狀況")
 async def slash_check(interaction: discord.Interaction):
