@@ -19,6 +19,7 @@
 
 import discord
 from discord.ext import commands
+from discord import app_commands
 import yfinance as yf
 import pandas as pd
 import requests
@@ -32,7 +33,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # ──────────────────────────────────────────────
 #  ⚙️  設定區（只需修改這裡）
 # ──────────────────────────────────────────────
-BOT_TOKEN  = "MTQ5OTU0ODg5NTM0MzE1MzI2NA.GEy3B_.1G1Yq8HUo9YwwEQ4AwF8qa1g4Bwmv9DVD72yA8"   # Discord Bot Token（填你的）
+BOT_TOKEN  = "你的BOT_TOKEN"   # Discord Bot Token（填你的）
 
 TW_TZ   = pytz.timezone('Asia/Taipei')
 logging.basicConfig(level=logging.INFO,
@@ -370,6 +371,7 @@ def fmt_weekly(hist_data, ind, score, light, title, now):
 intents          = discord.Intents.default()
 intents.message_content = True
 bot              = commands.Bot(command_prefix='!', intents=intents)
+tree             = bot.tree   # slash command 樹
 scheduler        = AsyncIOScheduler(timezone=TW_TZ)
 
 # 快取：避免每次 check 都抓日線歷史（重量級）
@@ -554,40 +556,35 @@ async def cmd_check(ctx):
         f"{light} **{title}**",
     ]))
 
-@bot.command(name='設定頻道')
-async def cmd_set_channel(ctx):
-    """!設定頻道 — 將此頻道設為日報/警報接收頻道"""
+# ── 共用回覆邏輯 ──
+async def _reply_set_channel(send_func, guild_id, channel_id, channel_name, guild_name):
     data = load_channels()
-    data[str(ctx.guild.id)] = ctx.channel.id
+    data[str(guild_id)] = channel_id
     save_channels(data)
-    await ctx.send(
+    await send_func(
         f"✅ **已設定！**\n"
-        f"此頻道（{ctx.channel.name}）將接收每日日報和加碼警報。\n"
+        f"此頻道（{channel_name}）將接收每日日報和加碼警報。\n"
         f"每日 09:00 自動發送，有大跌立即推播。"
     )
-    log.info(f"伺服器 {ctx.guild.name} 設定頻道: {ctx.channel.name}")
+    log.info(f"伺服器 {guild_name} 設定頻道: {channel_name}")
 
-@bot.command(name='取消頻道')
-async def cmd_remove_channel(ctx):
-    """!取消頻道 — 取消此伺服器的日報/警報"""
+async def _reply_remove_channel(send_func, guild_id):
     data = load_channels()
-    if str(ctx.guild.id) in data:
-        del data[str(ctx.guild.id)]
+    if str(guild_id) in data:
+        del data[str(guild_id)]
         save_channels(data)
-        await ctx.send("✅ 已取消，此伺服器不再接收日報和警報。")
+        await send_func("✅ 已取消，此伺服器不再接收日報和警報。")
     else:
-        await ctx.send("⚠️ 此伺服器尚未設定頻道。")
+        await send_func("⚠️ 此伺服器尚未設定頻道。")
 
-@bot.command(name='help2')
-async def cmd_help(ctx):
-    """!help2 — 指令說明"""
-    await ctx.send("\n".join([
+async def _reply_help(send_func):
+    await send_func("\n".join([
         "**📊 投資監控機器人 指令**",
-        "`!設定頻道` — 將此頻道設為日報/警報接收頻道",
-        "`!取消頻道` — 取消此伺服器的日報和警報",
-        "`!report`   — 手動觸發今日完整日報",
-        "`!check`    — 快速查看當前 0050 狀況",
-        "`!help2`    — 顯示此說明",
+        "`/設定頻道` — 將此頻道設為每日日報和加碼警報的接收頻道",
+        "`/取消頻道` — 取消此伺服器的日報和警報",
+        "`/report`   — 手動觸發今日完整日報",
+        "`/check`    — 快速查看當前 0050 即時狀況",
+        "`/說明`     — 顯示此說明",
         "",
         "**⏰ 自動排程**",
         "每日 09:00（週一至五） — 日報",
@@ -595,8 +592,84 @@ async def cmd_help(ctx):
         "每 13~17 分鐘           — 靜默偵測（觸發才推播）",
         "",
         "**💡 新伺服器加入後**",
-        "先輸入 `!設定頻道` 才會開始收到通知",
+        "先輸入 `/設定頻道` 才會開始收到通知",
     ]))
+
+async def _reply_check(send_func):
+    rt   = fetch_0050_realtime()
+    hist = get_hist_cached()
+    if not rt or '0050' not in hist:
+        await send_func("⚠️ 無法取得資料（可能是休市或網路問題），請稍後再試。")
+        return
+    high60    = hist['0050']['high60']
+    actual_dd = (rt['price'] - high60) / high60 * 100
+    p0        = hist['0050']
+    ind       = calc_indicators(p0['close'])
+    score, _  = convergence_score(actual_dd, ind, None)
+    light, title, _ = get_signal(actual_dd, score)
+    await send_func("\n".join([
+        f"📈 **0050 即時狀況** ({rt['time']})",
+        f"現價：{rt['price']:.2f} 元  ({rt['chg']:+.2f}%)",
+        f"距近期高點：**{actual_dd:.2f}%**",
+        f"RSI：{ind['RSI']:.1f} ｜ 乖離率：{ind['BIAS20']:+.2f}%",
+        f"共振評分：{score}/100",
+        f"{light} **{title}**",
+    ]))
+
+# ── Slash 指令（/ 開頭，解決全形半形問題）──
+@bot.tree.command(name="設定頻道", description="將此頻道設為每日日報和加碼警報的接收頻道")
+async def slash_set_channel(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await _reply_set_channel(
+        interaction.followup.send,
+        interaction.guild_id, interaction.channel_id,
+        interaction.channel.name, interaction.guild.name
+    )
+
+@bot.tree.command(name="取消頻道", description="取消此伺服器的日報和加碼警報")
+async def slash_remove_channel(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await _reply_remove_channel(interaction.followup.send, interaction.guild_id)
+
+@bot.tree.command(name="report", description="手動觸發今日完整市場日報")
+async def slash_report(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await interaction.followup.send("⏳ 正在抓取資料...")
+    await job_daily_report()
+
+@bot.tree.command(name="check", description="快速查看當前 0050 即時狀況")
+async def slash_check(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await _reply_check(interaction.followup.send)
+
+@bot.tree.command(name="說明", description="顯示所有指令說明")
+async def slash_help(interaction: discord.Interaction):
+    await interaction.response.defer()
+    await _reply_help(interaction.followup.send)
+
+# ── 傳統 ! 指令（保留相容性）──
+@bot.command(name='設定頻道')
+async def cmd_set_channel(ctx):
+    await _reply_set_channel(ctx.send, ctx.guild.id, ctx.channel.id,
+                              ctx.channel.name, ctx.guild.name)
+
+@bot.command(name='取消頻道')
+async def cmd_remove_channel(ctx):
+    await _reply_remove_channel(ctx.send, ctx.guild.id)
+
+@bot.command(name='report')
+async def cmd_report(ctx):
+    await ctx.send("⏳ 正在抓取資料...")
+    await job_daily_report()
+
+@bot.command(name='check')
+async def cmd_check(ctx):
+    await _reply_check(ctx.send)
+
+@bot.command(name='help2')
+async def cmd_help(ctx):
+    await _reply_help(ctx.send)
+
 
 
 # ── 啟動 ──
@@ -604,13 +677,11 @@ async def cmd_help(ctx):
 async def on_ready():
     log.info(f"Bot 上線：{bot.user}")
 
-    # 每日 09:00 日報（週一到週五）
     scheduler.add_job(job_daily_report,  'cron',
                       hour=9, minute=0, day_of_week='mon-fri')
-    # 每週一 09:00 週報
     scheduler.add_job(job_weekly_report, 'cron',
                       hour=9, minute=0, day_of_week='mon')
-    # 每 13~17 分鐘隨機偵測（避免固定頻率被識別）
+
     async def random_interval_check():
         while True:
             wait = random.randint(13 * 60, 17 * 60)
@@ -624,11 +695,18 @@ async def on_ready():
     for channel in channels:
         await channel.send(
             "✅ **投資監控機器人已上線！**\n"
-            "輸入 `!help2` 查看指令 ｜ `!check` 查看當前狀況"
+            "輸入 `/說明` 查看指令 ｜ `/check` 查看當前狀況"
         )
+
+    # 同步 slash 指令到 Discord
+    try:
+        synced = await bot.tree.sync()
+        log.info(f"已同步 {len(synced)} 個 slash 指令")
+    except Exception as e:
+        log.error(f"Slash 指令同步失敗: {e}")
+
     log.info(f"已通知 {len(channels)} 個伺服器")
     log.info("排程已啟動，Bot 運行中")
-
 
 if __name__ == '__main__':
     bot.run(BOT_TOKEN)
