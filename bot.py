@@ -228,6 +228,145 @@ HIST = {
     8:  {'count': 23, 'rec': 19, 'days': 60,  'bounce': 11.2, 'maxdrop': 18.5},
 }
 
+# ── GitHub 資料推送 ──
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GITHUB_REPO  = os.environ.get("GITHUB_REPO", "znxuyz/investment-bot")
+GITHUB_FILE  = "data.json"
+
+def push_to_github(data: dict) -> bool:
+    """把計算好的市場資料推到 GitHub data.json"""
+    if not GITHUB_TOKEN or not GITHUB_REPO:
+        log.warning("GITHUB_TOKEN 或 GITHUB_REPO 未設定，跳過推送")
+        return False
+    try:
+        import base64
+        content = json.dumps(data, ensure_ascii=False, indent=2)
+        encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{GITHUB_FILE}"
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        r = requests.get(api_url, headers=headers, timeout=10)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+        payload = {
+            "message": f"data: {datetime.now(TW_TZ).strftime('%Y/%m/%d %H:%M')}",
+            "content": encoded,
+        }
+        if sha:
+            payload["sha"] = sha
+        r2 = requests.put(api_url, headers=headers, json=payload, timeout=15)
+        if r2.status_code in (200, 201):
+            log.info("data.json 推送成功")
+            return True
+        log.warning(f"推送失敗: {r2.status_code}")
+        return False
+    except Exception as e:
+        log.warning(f"GitHub 推送錯誤: {e}")
+        return False
+
+def build_data_json(hist, rt, ind, score, signals, light, title, action,
+                    pred, stocks_data, idle_months, idle_emoji,
+                    idle_advice, last_trigger_str, foreign_net, now):
+    """組裝 data.json"""
+    p0   = hist.get('0050', {})
+    twii = hist.get('大盤', {})
+    spy  = hist.get('SPY',  {})
+    qqq  = hist.get('QQQ',  {})
+    vix  = hist.get('VIX',  {})
+    sox  = hist.get('費半', {})
+    price= rt['price'] if rt else p0.get('price', 0)
+    chg  = rt['chg']   if rt else p0.get('chg', 0)
+    return {
+        "updated_at":  now.strftime('%Y/%m/%d %H:%M'),
+        "market_open": bool(rt.get('is_open', False)) if rt else False,
+        "0050": {
+            "price":       round(float(price), 2),
+            "chg":         round(float(chg), 2),
+            "high60":      round(float(p0.get('high60', 0)), 2),
+            "high60_date": p0.get('high60_date', '--'),
+            "high60_days": int(p0.get('high60_days', 0)),
+            "drawdown":    round(float(p0.get('drawdown', 0)), 2),
+        },
+        "twii": {
+            "price": round(float(twii.get('price', 0)), 0),
+            "chg":   round(float(twii.get('chg', 0)), 2),
+        },
+        "indicators": {
+            "RSI":        round(float(ind['RSI']), 1),
+            "BIAS20":     round(float(ind['BIAS20']), 2),
+            "BIAS60":     round(float(ind['BIAS60']), 2),
+            "MACDhist":   round(float(ind['MACDhist']), 4),
+            "above_MA20": bool(ind['above_MA20']),
+            "above_MA60": bool(ind['above_MA60']),
+            "MA20":       round(float(ind['MA20']), 2),
+            "MA60":       round(float(ind['MA60']), 2),
+        },
+        "convergence": {"score": int(score), "signals": signals},
+        "signal":      {"light": light, "title": title, "action": action},
+        "prediction": {
+            "score":   int(pred['score']),
+            "level":   pred['level'],
+            "emoji":   pred['emoji'],
+            "range":   pred['range'],
+            "advice":  pred['advice'],
+            "signals": pred['signals'],
+        },
+        "stocks": {
+            code: {
+                "name":        sd['name'],
+                "price":       round(float(sd['price']), 2),
+                "high60":      round(float(sd['high60']), 2),
+                "high60_date": sd['high60_date'],
+                "high60_days": int(sd['high60_days']),
+                "drawdown":    round(float(sd['drawdown']), 2),
+            }
+            for code, sd in stocks_data.items()
+        },
+        "idle": {
+            "months":       int(idle_months),
+            "emoji":        idle_emoji,
+            "advice":       idle_advice,
+            "last_trigger": last_trigger_str,
+        },
+        "us_market": {
+            name: {"price": round(float(d.get('price',0)),2), "chg": round(float(d.get('chg',0)),2)}
+            for name, d in [("SPY",spy),("QQQ",qqq),("VIX",vix),("費半",sox)] if d
+        },
+        "foreign_net": int(foreign_net) if foreign_net is not None else None,
+    }
+
+async def job_push_data():
+    """每15分鐘推一次市場資料到 GitHub data.json"""
+    try:
+        hist    = get_hist_cached()
+        rt      = fetch_0050_realtime()
+        foreign = fetch_foreign_flow()
+        if '0050' not in hist:
+            return
+        p0        = hist['0050']
+        ind       = calc_indicators(p0['close'])
+        actual_dd = (rt['price']-p0['high60'])/p0['high60']*100 if rt else p0['drawdown']
+        score, signals = convergence_score(actual_dd, ind, foreign)
+        light, title, action = get_signal(actual_dd, score)
+        pred = predict_correction(list(p0['close']), ind['RSI'], ind['BIAS20'], ind['BIAS60'])
+        stocks_data = {}
+        for st in WATCH_STOCKS:
+            sd = fetch_stock_data(st['code'])
+            if sd:
+                stocks_data[st['code']] = {**st, **sd}
+        idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
+        now  = datetime.now(TW_TZ)
+        data = build_data_json(
+            hist, rt, ind, score, signals, light, title, action,
+            pred, stocks_data, idle_months, idle_emoji,
+            idle_advice, str(last_trigger), foreign, now
+        )
+        push_to_github(data)
+        log.info(f"data.json 推送完成")
+    except Exception as e:
+        log.warning(f"job_push_data 錯誤: {e}")
+
 # ── 個股追蹤 ──
 WATCH_STOCKS = [
     {'name': '台積電', 'code': '2330'},
@@ -752,6 +891,7 @@ async def on_ready():
         while True:
             await asyncio.sleep(random.randint(13*60, 17*60))
             await job_price_check()
+            await job_push_data()  # 同時推資料到 GitHub
 
     asyncio.create_task(random_check())
     scheduler.start()
