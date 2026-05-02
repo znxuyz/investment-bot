@@ -804,12 +804,28 @@ async def on_ready():
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
     scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0, day=1)
     scheduler.add_job(job_push_data,     'interval', minutes=30)
+    scheduler.add_job(job_push_data,     'cron', hour=14, minute=0, day_of_week='mon-fri')
 
-    async def random_check():
+    async def market_hour_check():
+        """只在開盤時間（09:00~13:30）每15分鐘偵測一次"""
         while True:
-            await asyncio.sleep(random.randint(13*60, 17*60))
-            await job_price_check()
-    asyncio.create_task(random_check())
+            now_tw = datetime.now(TW_TZ)
+            weekday = now_tw.weekday()  # 0=週一, 4=週五
+            hour, minute = now_tw.hour, now_tw.minute
+            is_market_open = (
+                weekday < 5 and  # 週一到週五
+                (hour == 9 and minute >= 0) or
+                (10 <= hour <= 12) or
+                (hour == 13 and minute <= 30)
+            )
+            if is_market_open:
+                await job_price_check()
+                await asyncio.sleep(random.randint(13*60, 17*60))
+            else:
+                # 非開盤時間，每10分鐘檢查一次是否到開盤時間
+                await asyncio.sleep(10*60)
+
+    asyncio.create_task(market_hour_check())
     scheduler.start()
 
     # 同步 slash 指令
