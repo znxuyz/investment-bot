@@ -2,9 +2,9 @@
 📊 投資監控 Discord 機器人
 功能：
   • 每日 09:00 自動日報
-  • 每 13~17 分鐘靜默偵測，觸發才推播
-  • 每週一週報
-  • 每月1日子彈閒置提醒
+  • 開盤時間（09:00~13:30）每15分鐘偵測，觸發才推播
+  • 每日 14:00 收盤後更新 data.json
+  • 每週一週報 / 每月1日子彈閒置提醒
   • 每30分鐘推送 data.json 到 GitHub（供網頁使用）
   • 多伺服器支援，/斜線指令
 """
@@ -158,14 +158,6 @@ def fetch_historical():
         'high60_date': high60_date,
         'high60_days': int(high60_days),
     }
-
-def fetch_us_market():
-    """
-    美股資料（可選）。
-    目前 Railway 無法存取 Yahoo Finance，回傳空字典不影響主功能。
-    未來可替換為其他 API（如 Alpha Vantage）。
-    """
-    return {}
 
 def fetch_foreign_flow():
     """外資買賣超"""
@@ -323,7 +315,6 @@ def get_cache():
     if _cache_date != today or not _cache:
         log.info('更新資料快取...')
         hist = fetch_historical()
-        us   = fetch_us_market()
         _cache = {'hist': hist}
         _cache_date = today
     return _cache
@@ -410,8 +401,6 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
     price = rt['price'] if rt else 0
     chg   = rt['chg']   if rt else 0
     label = rt['label'] if rt else '--'
-    h60   = '（詳見 data.json）'
-
     prob_txt = '目前回檔未達 8% 門檻' if not prob else (
         f"歷史跌超{prob['thresh']}%共 **{prob['count']}次** ｜ "
         f"{prob['days']}日內回前高 **{prob['pct']}%** ｜ "
@@ -560,7 +549,6 @@ async def job_daily_report():
 
     cache = get_cache()
     hist  = cache.get('hist')
-    us    = cache.get('us', {})
     if not hist:
         for ch in channels: await ch.send('⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。')
         return
@@ -595,7 +583,7 @@ async def job_daily_report():
     push_data_json(data)
 
 async def job_price_check():
-    """每 13~17 分鐘靜默偵測"""
+    """開盤時間（09:00~13:30）每15分鐘偵測，觸發才推播"""
     global _last_alert_lvl
     rt = fetch_0050_realtime()
     if not rt: return
@@ -736,7 +724,7 @@ async def _do_help(send):
         '**⏰ 自動排程**',
         '每日 09:00（週一至五）— 日報',
         '每週一 09:00         — 週報',
-        '每 13~17 分鐘         — 靜默偵測（觸發才推播）',
+        '開盤時間 09:00~13:30  — 每15分鐘偵測（觸發才推播）',
         '每30分鐘              — 更新網頁資料',
         '每月1日               — 子彈閒置提醒',
         '',
