@@ -709,9 +709,12 @@ async function loadAll(){
   try{
     // 直接讀 GitHub 上的 data.json（Bot 每15分鐘更新）
     const url=`https://raw.githubusercontent.com/znxuyz/investment-bot/main/data.json?t=${Date.now()}`;
+    console.log('正在讀取:', url);
     const r=await fetch(url);
-    if(!r.ok)throw new Error(`HTTP ${r.status}`);
+    console.log('HTTP 狀態:', r.status, r.statusText);
+    if(!r.ok)throw new Error(`HTTP ${r.status} ${r.statusText}`);
     const d=await r.json();
+    console.log('data.json 讀取成功:', d.updated_at);
 
     // 注入個股資料
     window._stockData={};
@@ -750,8 +753,13 @@ async function loadAll(){
     document.getElementById('mktSt').style.color=isOpen?'var(--green)':'var(--muted)';
 
   }catch(e){
-    document.getElementById('main').innerHTML=`<div class="err">⚠️ 資料載入失敗<br><small style="color:var(--muted)">${e.message}</small><br><br>Bot 可能尚未推送第一筆資料，請稍後重試</div>`;
-    document.getElementById('updTime').textContent='載入失敗';
+    document.getElementById('main').innerHTML=`<div class="err">
+      ⚠️ 資料載入失敗<br>
+      <small style="color:var(--muted)">${e.message}</small><br><br>
+      嘗試讀取：<small style="color:var(--muted);word-break:break-all">https://raw.githubusercontent.com/znxuyz/investment-bot/main/data.json</small><br><br>
+      請確認 data.json 存在於 GitHub，然後重新整理
+    </div>`;
+    document.getElementById('updTime').textContent='載入失敗：'+e.message;
   }
 }
 loadAll();
