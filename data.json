@@ -1,5 +1,5 @@
 {
-  "updated": "2026-05-02T11:54:50.549850+08:00",
+  "updated": "2026-05-02T14:05:59.265655+08:00",
   "market_open": true,
   "twii": {
     "price": 38926.63,
@@ -42,12 +42,6 @@
       "emoji": "🟡",
       "advice": "留意回檔訊號，子彈先別動"
     }
-  },
-  "us": {
-    "spy_chg": null,
-    "qqq_chg": null,
-    "vix": null,
-    "sox_chg": null
   },
   "foreign_net": null,
   "idle": {
