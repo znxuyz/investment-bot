@@ -19,7 +19,6 @@ import base64
 import pytz
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -94,44 +93,79 @@ def fetch_twii():
         log.warning(f'TWSE 大盤: {e}')
     return None
 
-def fetch_historical():
-    """yfinance 抓 0050 歷史日線（計算技術指標用）"""
+def fetch_monthly_twse(year, month):
+    """抓 TWSE 單月 0050 收盤資料"""
+    date_str = f"{year}{month:02d}01"
+    url = (f'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY'
+           f'?stockNo=0050&date={date_str}&response=json')
     try:
-        df = yf.download('0050.TW', period='6mo', interval='1d',
-                         progress=False, auto_adjust=True)
-        if df.empty: return None
-        closes = list(df['Close'].dropna())
-        # 前波高點
-        slice60 = closes[-60:] if len(closes) >= 60 else closes
-        idx = df['Close'].iloc[-60:].idxmax() if len(closes) >= 60 else df['Close'].idxmax()
-        high60 = float(df['Close'].loc[idx])
-        high60_date = idx.strftime('%Y/%m/%d')
-        high60_days = len(df) - 1 - list(df.index).index(idx)
-        return {
-            'closes': closes,
-            'high60': high60,
-            'high60_date': high60_date,
-            'high60_days': int(high60_days),
-        }
+        r = requests.get(url, headers=TWSE_HEADERS, timeout=10)
+        if r.status_code != 200: return []
+        data = r.json()
+        if data.get('stat') != 'OK' or not data.get('data'): return []
+        result = []
+        for row in data['data']:
+            close_str = row[6].replace(',', '')
+            date_str  = row[0]  # 格式: 114/05/01（民國年）
+            if close_str and close_str not in ('--', 'X'):
+                try:
+                    close = float(close_str)
+                    # 民國年轉西元年
+                    parts = date_str.split('/')
+                    if len(parts) == 3:
+                        ad_date = f"{int(parts[0])+1911}/{parts[1]}/{parts[2]}"
+                    else:
+                        ad_date = date_str
+                    result.append({'close': close, 'date': ad_date})
+                except: pass
+        return result
     except Exception as e:
-        log.warning(f'yfinance 歷史: {e}')
-    return None
+        log.warning(f'TWSE 月資料 {year}/{month}: {e}')
+    return []
+
+def fetch_historical():
+    """用 TWSE 官方 API 抓 0050 歷史日線（不依賴 yfinance）"""
+    from datetime import datetime as dt
+    now = dt.now()
+    all_data = []
+    for i in range(5, -1, -1):
+        month = now.month - i
+        year  = now.year
+        while month <= 0:
+            month += 12; year -= 1
+        rows = fetch_monthly_twse(year, month)
+        all_data.extend(rows)
+
+    if len(all_data) < 20:
+        log.warning(f'歷史資料不足: {len(all_data)}筆')
+        return None
+
+    closes = [d['close'] for d in all_data]
+    dates  = [d['date']  for d in all_data]
+
+    # 找近60日高點
+    slice60 = closes[-60:] if len(closes) >= 60 else closes
+    dates60 = dates[-60:]  if len(closes) >= 60 else dates
+    max_idx  = slice60.index(max(slice60))
+    high60   = slice60[max_idx]
+    high60_date = dates60[max_idx]
+    high60_days = len(slice60) - 1 - max_idx
+
+    log.info(f'歷史資料: {len(closes)}筆，高點 {high60:.2f} ({high60_date})')
+    return {
+        'closes':     closes,
+        'high60':     float(high60),
+        'high60_date': high60_date,
+        'high60_days': int(high60_days),
+    }
 
 def fetch_us_market():
-    """美股 SPY / QQQ / VIX / 費半"""
-    tickers = {'spy': 'SPY', 'qqq': 'QQQ', 'vix': '^VIX', 'sox': '^SOX'}
-    result = {}
-    for key, ticker in tickers.items():
-        try:
-            df = yf.download(ticker, period='5d', interval='1d',
-                             progress=False, auto_adjust=True)
-            if not df.empty and len(df) >= 2:
-                p = float(df['Close'].iloc[-1])
-                prev = float(df['Close'].iloc[-2])
-                result[key] = {'price': p, 'chg': (p - prev) / prev * 100}
-        except Exception as e:
-            log.warning(f'美股 {ticker}: {e}')
-    return result
+    """
+    美股資料（可選）。
+    目前 Railway 無法存取 Yahoo Finance，回傳空字典不影響主功能。
+    未來可替換為其他 API（如 Alpha Vantage）。
+    """
+    return {}
 
 def fetch_foreign_flow():
     """外資買賣超"""
