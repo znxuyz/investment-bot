@@ -188,7 +188,16 @@ function signal(light){
 
 // ── 渲染 ──
 function render(d){
+  // null 保護：任何欄位缺失都不會崩潰
+  if(!d || !d.etf_0050){
+    document.getElementById('main').innerHTML=`<div class="err">⚠️ 資料格式異常，請等 Bot 推送最新資料後重試</div>`;
+    return;
+  }
   const e = d.etf_0050;
+  if(e.drawdown==null||e.price==null){
+    document.getElementById('main').innerHTML=`<div class="err">⚠️ 資料不完整，Bot 正在更新中，請稍後再試</div>`;
+    return;
+  }
   const dd = e.drawdown;
   const ddAbs = Math.min(Math.abs(dd)/25*100,100);
   const ddColor = dd<=-20?'var(--red)':dd<=-8?'var(--yellow)':'var(--green)';
