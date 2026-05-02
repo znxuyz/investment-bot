@@ -324,7 +324,7 @@ def get_cache():
         log.info('更新資料快取...')
         hist = fetch_historical()
         us   = fetch_us_market()
-        _cache = {'hist': hist, 'us': us}
+        _cache = {'hist': hist}
         _cache_date = today
     return _cache
 
@@ -369,7 +369,7 @@ def push_data_json(data: dict):
         log.warning(f'data.json 推送錯誤: {e}')
         return False
 
-def build_data_json(rt, twii, hist_data, us, foreign_net, ind,
+def build_data_json(rt, twii, hist_data, foreign_net, ind,
                      drawdown, score, signals, light, title, action,
                      prob, pred, idle_months, idle_emoji, idle_advice, last_trigger):
     """組合 data.json 的完整資料結構"""
@@ -391,12 +391,7 @@ def build_data_json(rt, twii, hist_data, us, foreign_net, ind,
             'hist_prob': prob,
             'pred': pred,
         },
-        'us': {
-            'spy_chg': us.get('spy', {}).get('chg', None),
-            'qqq_chg': us.get('qqq', {}).get('chg', None),
-            'vix':     us.get('vix', {}).get('price', None),
-            'sox_chg': us.get('sox', {}).get('chg', None),
-        },
+
         'foreign_net': foreign_net,
         'idle': {
             'months': idle_months,
@@ -409,26 +404,9 @@ def build_data_json(rt, twii, hist_data, us, foreign_net, ind,
 # ══════════════════════════════════════════
 #  📝  DC 訊息格式
 # ══════════════════════════════════════════
-def us_comment(us):
-    lines = []
-    spy = us.get('spy', {}).get('chg')
-    sox = us.get('sox', {}).get('chg')
-    vix = us.get('vix', {}).get('price')
-    if spy is not None:
-        if spy<=-2: lines.append(f'⚠️ 美股昨大跌 {spy:.1f}%，台股今日可能承壓')
-        elif spy>=2: lines.append(f'✅ 美股昨大漲 {spy:.1f}%，台股今日偏多')
-        else: lines.append(f'😐 美股昨小幅 {spy:+.1f}%，影響有限')
-    if sox is not None:
-        if sox<=-3: lines.append(f'⚠️ 費半昨跌 {sox:.1f}%，半導體族群留意')
-        elif sox>=3: lines.append(f'✅ 費半昨漲 {sox:.1f}%，半導體偏多')
-    if vix is not None:
-        if vix>30: lines.append(f'😱 VIX {vix:.1f}｜極度恐慌，往往是好買點')
-        elif vix>20: lines.append(f'⚠️ VIX {vix:.1f}｜市場情緒緊張')
-        else: lines.append(f'😊 VIX {vix:.1f}｜市場情緒穩定')
-    return '\n'.join(f'    {l}' for l in lines) if lines else '    資料載入中...'
 
 def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
-              prob, pred, foreign_net, us, idle_months, idle_emoji, idle_advice, now):
+              prob, pred, foreign_net, idle_months, idle_emoji, idle_advice, now):
     price = rt['price'] if rt else 0
     chg   = rt['chg']   if rt else 0
     label = rt['label'] if rt else '--'
@@ -454,10 +432,7 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
         f"    乖離率（60日）：{ind['bias60']:+.2f}%",
         f"    MACD：{'↗️ 翻正' if ind['macd_hist']>0 else '↘️ 負值'}",
         f"    MA20：{'上方✅' if ind['above_ma20'] else '下方⚠️'} ｜ MA60：{'上方✅' if ind['above_ma60'] else '下方⚠️'}",
-        '',
-        '**🌏 美股→台股預判**',
-        us_comment(us),
-        f"    外資買賣超：{f'{foreign_net:+,} 張' if foreign_net is not None else '待更新'}",
+
         '',
         f"**🎯 多指標共振評分：{score}/100**",
         *([f'    • {s}' for s in signals] if signals else ['    • 無顯著訊號']),
@@ -555,7 +530,6 @@ async def job_push_data():
     """每30分鐘：計算所有資料並推送 data.json"""
     cache = get_cache()
     hist = cache.get('hist')
-    us   = cache.get('us', {})
     if not hist: log.warning('歷史資料不足，跳過推送'); return
 
     rt      = fetch_0050_realtime()
@@ -573,7 +547,7 @@ async def job_push_data():
     idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
 
     data = build_data_json(
-        rt, twii, hist, us, foreign, ind,
+        rt, twii, hist, foreign, ind,
         drawdown, score, signals, light, title, action,
         prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
     )
@@ -614,7 +588,7 @@ async def job_daily_report():
 
     # 同步推送 data.json
     data = build_data_json(
-        rt, twii, hist, us, foreign, ind,
+        rt, twii, hist, foreign, ind,
         drawdown, score, signals, light, title, action,
         prob, pred, idle_months, idle_emoji, idle_advice, _
     )
