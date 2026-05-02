@@ -1,82 +1,59 @@
 {
-  "updated_at": "2026/05/02 07:41",
+  "updated": "2026-05-02T11:37:34.505033+08:00",
   "market_open": true,
-  "0050": {
+  "twii": {
+    "price": 38926.63,
+    "chg": -0.9588713473354857
+  },
+  "etf_0050": {
     "price": 90.5,
-    "chg": -0.28,
+    "chg": -0.27548209366391185,
+    "label": "盤中即時",
     "high60": 93.0,
     "high60_date": "2026/04/27",
     "high60_days": 3,
-    "drawdown": -2.69
-  },
-  "twii": {
-    "price": 0.0,
-    "chg": 0.0
-  },
-  "indicators": {
-    "RSI": 70.4,
-    "BIAS20": 7.72,
-    "BIAS60": 15.59,
-    "MACDhist": 0.6583,
-    "above_MA20": true,
-    "above_MA60": true,
-    "MA20": 84.01,
-    "MA60": 78.29
-  },
-  "convergence": {
-    "score": 0,
-    "signals": []
-  },
-  "signal": {
+    "drawdown": -2.6881720430107525,
+    "rsi": 70.35324747060727,
+    "bias20": 7.7220651688736766,
+    "bias60": 15.589709748491263,
+    "ma20": 84.0125,
+    "ma60": 78.29416666666667,
+    "macd_hist": 0.6582801715722684,
+    "above_ma20": true,
+    "above_ma60": true,
+    "score": 15,
+    "signals": [
+      "MACD底部翻正 (+15)"
+    ],
     "light": "🟢",
     "title": "正常持有｜繼續定額",
-    "action": "無需動作，每月定額照常執行"
-  },
-  "prediction": {
-    "score": 55,
-    "level": "中",
-    "emoji": "🟡",
-    "range": "-8%~-15%",
-    "advice": "留意回檔訊號，子彈先別動",
-    "signals": [
-      "RSI 70.4 過熱",
-      "乖離率 +7.7% 偏高",
-      "近30日漲 +16.3% 偏大",
-      "60日乖離 +15.6% 嚴重過高"
-    ]
-  },
-  "stocks": {
-    "2330": {
-      "name": "台積電",
-      "price": 2135.0,
-      "high60": 2265.0,
-      "high60_date": "2026/04/27",
-      "high60_days": 3,
-      "drawdown": -5.74
-    },
-    "2454": {
-      "name": "聯發科",
-      "price": 2610.0,
-      "high60": 2615.0,
-      "high60_date": "2026/04/28",
-      "high60_days": 2,
-      "drawdown": -0.19
-    },
-    "3711": {
-      "name": "日月光",
-      "price": 478.0,
-      "high60": 496.0,
-      "high60_date": "2026/04/24",
-      "high60_days": 4,
-      "drawdown": -3.63
+    "action": "無需動作，每月定額照常",
+    "hist_prob": null,
+    "pred": {
+      "score": 55,
+      "signals": [
+        "RSI 70.4 過熱",
+        "乖離率 +7.7% 偏高",
+        "近30日漲 +16.3% 偏大",
+        "60日乖離 +15.6% 嚴重過高"
+      ],
+      "range": "-8%~-15%",
+      "level": "中",
+      "emoji": "🟡",
+      "advice": "留意回檔訊號，子彈先別動"
     }
   },
+  "us": {
+    "spy_chg": null,
+    "qqq_chg": null,
+    "vix": null,
+    "sox_chg": null
+  },
+  "foreign_net": null,
   "idle": {
     "months": 0,
     "emoji": "🟢",
     "advice": "繼續等待，保留子彈",
-    "last_trigger": "2026-05-01"
-  },
-  "us_market": {},
-  "foreign_net": null
+    "last_date": "2026-05-02"
+  }
 }
