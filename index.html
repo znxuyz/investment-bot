@@ -129,13 +129,7 @@ body::before{content:'';position:fixed;inset:0;
 /* 閒置狀況 */
 .itrack{height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;margin:8px 0;}
 
-/* 美股 */
-.usgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
-@media(max-width:400px){.usgrid{grid-template-columns:repeat(2,1fr);}}
-.usitem{background:rgba(255,255,255,0.03);border-radius:8px;padding:9px;border:1px solid var(--border);}
-.usname{font-size:11px;color:var(--muted);margin-bottom:3px;}
-.usval{font-family:var(--mono);font-size:14px;font-weight:700;}
-.uschg{font-family:var(--mono);font-size:11px;margin-top:2px;}
+
 
 .disc{text-align:center;font-size:11px;color:var(--muted);padding-top:20px;
   border-top:1px solid var(--border);margin-top:20px;line-height:1.8;}
@@ -203,7 +197,6 @@ function render(d){
   const ddColor = dd<=-20?'var(--red)':dd<=-8?'var(--yellow)':'var(--green)';
   const scColor = e.score>=70?'var(--red)':e.score>=45?'var(--yellow)':'var(--green)';
   const circ = 2*Math.PI*32;
-  const us = d.us||{};
   const idle = d.idle||{months:0,emoji:'🟢',advice:'繼續等待，保留子彈',last_date:'--'};
   const prob = e.hist_prob;
   const pred = e.pred||{score:0,emoji:'🟢',level:'極低',range:'--',advice:'--',signals:[]};
@@ -216,23 +209,6 @@ function render(d){
     {range:'-20%+ 觸發', action:'動用 100% 子彈，全力加碼', pct:'100%',active:dd<=-20},
   ];
   const ptc={'30%':'var(--yellow)','70%':'var(--gold)','100%':'var(--red)'};
-
-  // 美股預判文字
-  let usLines=[];
-  if(us.spy_chg!=null){
-    if(us.spy_chg<=-2) usLines.push(`⚠️ 美股昨大跌 ${us.spy_chg.toFixed(1)}%，台股今日可能承壓`);
-    else if(us.spy_chg>=2) usLines.push(`✅ 美股昨大漲 ${us.spy_chg.toFixed(1)}%，台股今日偏多`);
-    else usLines.push(`😐 美股昨小幅 ${(us.spy_chg>0?'+':'')+us.spy_chg.toFixed(1)}%，影響有限`);
-  }
-  if(us.sox_chg!=null){
-    if(us.sox_chg<=-3) usLines.push(`⚠️ 費半昨跌 ${us.sox_chg.toFixed(1)}%，半導體族群留意`);
-    else if(us.sox_chg>=3) usLines.push(`✅ 費半昨漲 ${us.sox_chg.toFixed(1)}%，半導體偏多`);
-  }
-  if(us.vix!=null){
-    if(us.vix>30) usLines.push(`😱 VIX ${us.vix.toFixed(1)}｜極度恐慌，往往是好買點`);
-    else if(us.vix>20) usLines.push(`⚠️ VIX ${us.vix.toFixed(1)}｜市場情緒緊張`);
-    else usLines.push(`😊 VIX ${us.vix.toFixed(1)}｜市場情緒穩定`);
-  }
 
   const idleBar = Math.min(idle.months/12*100,100);
   const idleColor = idle.months>=12?'var(--red)':idle.months>=6?'var(--yellow)':'var(--green)';
@@ -338,28 +314,9 @@ function render(d){
       </div>
     </div>
 
-    <!-- 美股 + 子彈建議 -->
-    <div class="g2">
-      <div class="card">
-        <div class="ct">🌏 美股→台股預判</div>
-        <div class="usgrid">
-          ${[['SPY',us.spy_chg],['QQQ',us.qqq_chg],['VIX',null,us.vix],['費半',us.sox_chg]].map(([n,chg,price])=>`
-          <div class="usitem">
-            <div class="usname">${n}</div>
-            <div class="usval">${price!=null?price.toFixed(1):chg!=null?(chg>0?'+':'')+chg.toFixed(2)+'%':'--'}</div>
-            ${chg!=null?`<div class="uschg" style="color:${chgColor(chg)}">${fmtChg(chg)}</div>`:''}
-          </div>`).join('')}
-        </div>
-        <div style="margin-top:12px;font-size:11px;color:var(--muted);line-height:1.8">
-          ${usLines.join('<br>') || '資料載入中...'}
-        </div>
-        <div style="margin-top:8px;font-size:12px;color:var(--muted)">
-          外資買賣超：${d.foreign_net!=null?`${d.foreign_net>0?'+':''}${d.foreign_net.toLocaleString()} 張`:'待更新'}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="ct">💰 子彈加碼建議</div>
+    <!-- 子彈建議 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="ct">💰 子彈加碼建議</div>
         <div class="brows">
           ${bullets.map(b=>`
           <div class="brow ${b.active?'bact':''}">
@@ -373,7 +330,6 @@ function render(d){
             ${b.active?'<span style="margin-left:auto;font-size:16px">👈</span>':''}
           </div>`).join('')}
         </div>
-      </div>
     </div>
 
     <!-- 回測機率預測 -->
