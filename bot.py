@@ -300,7 +300,7 @@ def load_last_trigger():
     if os.path.exists(IDLE_FILE):
         with open(IDLE_FILE) as f:
             return date.fromisoformat(json.load(f).get('date', str(date.today())))
-    return date.today()
+    return date(2026, 5, 1)  # 專案初始日，首次部署前無觸發記錄
 
 def save_last_trigger():
     """同時存本地與 GitHub，確保重啟後不流失"""
