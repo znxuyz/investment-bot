@@ -285,6 +285,10 @@ def predict_correction(closes, ind):
 # ══════════════════════════════════════════
 def load_last_trigger():
     """優先從 GitHub 讀取，Railway 重啟後仍保留閒置計時"""
+    global _last_trigger_cache
+    if _last_trigger_cache:
+        return _last_trigger_cache
+    default = date(2026, 5, 1)
     if GITHUB_TOKEN:
         try:
             api_url = (f'https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}'
@@ -294,17 +298,29 @@ def load_last_trigger():
             r = requests.get(api_url, headers=headers, timeout=10)
             if r.status_code == 200:
                 content = base64.b64decode(r.json()['content']).decode('utf-8')
-                return date.fromisoformat(json.loads(content).get('date', str(date.today())))
+                result = date.fromisoformat(json.loads(content).get('date', str(default)))
+                _last_trigger_cache = result
+                return result
+            elif r.status_code == 404:
+                # 首次部署：GitHub 上尚無檔案，寫入預設日期
+                save_last_trigger(default)
         except Exception as e:
             log.warning(f'讀取 last_trigger.json: {e}')
     if os.path.exists(IDLE_FILE):
         with open(IDLE_FILE) as f:
-            return date.fromisoformat(json.load(f).get('date', str(date.today())))
-    return date(2026, 5, 1)  # 專案初始日，首次部署前無觸發記錄
+            result = date.fromisoformat(json.load(f).get('date', str(default)))
+            _last_trigger_cache = result
+            return result
+    _last_trigger_cache = default
+    return default
 
-def save_last_trigger():
+def save_last_trigger(trigger_date=None):
     """同時存本地與 GitHub，確保重啟後不流失"""
-    payload_data = {'date': str(date.today())}
+    global _last_trigger_cache
+    if trigger_date is None:
+        trigger_date = date.today()
+    _last_trigger_cache = trigger_date
+    payload_data = {'date': str(trigger_date)}
     with open(IDLE_FILE, 'w') as f:
         json.dump(payload_data, f)
     if not GITHUB_TOKEN:
@@ -519,6 +535,23 @@ def fmt_weekly(twii, price, drawdown, ind, score, light, title, now):
         '━━━━━━━━━━━━━━━━━━━━━━━━',
     ])
 
+def fmt_close_summary(rt, twii, drawdown, light, title, action, now):
+    """15:30 收盤後推播的簡短 Discord 摘要"""
+    price = rt['price'] if rt else 0
+    chg   = rt['chg']   if rt else 0
+    lines = [
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        f"📊 **收盤快報** ｜ {now.strftime('%Y/%m/%d')}",
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+        f"📈 **0050**：{price:.2f} 元  ({chg:+.2f}%)",
+        (f"🇹🇼 **大盤**：{twii.get('price',0):,.0f} 點  ({twii.get('chg',0):+.2f}%)" if twii else ''),
+        f"📉 距近期高點：{drawdown:.2f}%",
+        f"{light} {title}",
+        f"> {action}",
+        '━━━━━━━━━━━━━━━━━━━━━━━━',
+    ]
+    return '\n'.join(l for l in lines if l)
+
 # ══════════════════════════════════════════
 #  🔧  多伺服器頻道管理
 # ══════════════════════════════════════════
@@ -589,6 +622,8 @@ _last_alert_lvl = 0
 _initialized = False
 _market_open_today = False  # 今日市場是否曾開盤（用於判斷國定假日）
 _today_open_date   = None
+_last_push_data    = None   # API 失敗時用來重推的上次快取
+_last_trigger_cache = None  # 避免每次都打 GitHub API
 
 # ── 排程任務 ──
 
@@ -622,10 +657,20 @@ async def job_push_data(is_close_push=False, force=False):
         global _cache_date
         _cache_date = None  # 強制刷新，確保 15:30 能拿到今日收盤的歷史資料
 
+    global _last_push_data
+
     cache = get_cache()
     hist  = cache.get('hist')
     if not hist:
-        log.warning('歷史資料不足，跳過推送')
+        # API 取得歷史資料失敗：重推上次快取，網頁顯示警告
+        if _last_push_data:
+            stale = dict(_last_push_data)
+            stale['stale'] = True
+            stale['updated'] = datetime.now(TW_TZ).isoformat()
+            push_data_json(stale)
+            log.warning('歷史資料 API 失敗，重推上次快取（stale=True）')
+        else:
+            log.warning('歷史資料不足且無 fallback 快取，跳過推送')
         return
 
     rt = fetch_0050_realtime()
@@ -654,6 +699,19 @@ async def job_push_data(is_close_push=False, force=False):
         prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
     )
     push_data_json(data)
+    _last_push_data = data  # 儲存成功資料，供下次 API 失敗時 fallback
+
+    # 收盤推送後額外發 Discord 摘要
+    if is_close_push:
+        channels = await get_all_channels()
+        if channels:
+            now = datetime.now(TW_TZ)
+            msg = fmt_close_summary(rt, twii, drawdown, light, title, action, now)
+            for ch in channels:
+                try:
+                    await ch.send(msg)
+                except Exception as e:
+                    log.warning(f'收盤摘要推送失敗: {e}')
 
 async def job_daily_report():
     """每日 09:00 日報"""
