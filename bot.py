@@ -219,9 +219,10 @@ def calc_all(closes):
     b60 = calc_bias(closes, 60)
     ma20 = calc_ma(closes, 20)
     ma60 = calc_ma(closes, 60)
-    _, _, hist = calc_macd(closes)
+    macd_line, _, hist = calc_macd(closes)
     return {'rsi': float(rsi), 'bias20': float(b20), 'bias60': float(b60),
             'ma20': float(ma20), 'ma60': float(ma60), 'macd_hist': float(hist),
+            'macd': float(macd_line),
             'above_ma20': bool(closes[-1] > ma20), 'above_ma60': bool(closes[-1] > ma60)}
 
 # ══════════════════════════════════════════
@@ -243,7 +244,7 @@ def convergence_score(drawdown, ind, foreign_net):
     elif rsi < 40: score+=12; signals.append(f'RSI {rsi:.1f} 偏低 (+12)')
     if b20 < -5:   score+=20; signals.append(f'乖離率 {b20:.1f}% 大幅負乖離 (+20)')
     elif b20 < -3: score+=10; signals.append(f'乖離率 {b20:.1f}% 負乖離 (+10)')
-    if mh > 0:     score+=15; signals.append('MACD底部翻正 (+15)')
+    if mh > 0 and ind.get('macd', 0) < 0: score+=15; signals.append('MACD底部翻正 (+15)')
     if foreign_net and foreign_net > 0: score+=10; signals.append(f'外資買超 (+10)')
     return int(min(score, 100)), signals
 
@@ -560,6 +561,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 scheduler = AsyncIOScheduler(timezone=TW_TZ)
 _last_alert_lvl = 0
+_initialized = False
 
 # ── 排程任務 ──
 
@@ -597,7 +599,6 @@ async def job_daily_report():
 
     cache = get_cache()
     hist  = cache.get('hist')
-    us    = cache.get('us', {})
     if not hist:
         for ch in channels: await ch.send('⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。')
         return
@@ -618,7 +619,7 @@ async def job_daily_report():
     now  = datetime.now(TW_TZ)
 
     msg = fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
-                    prob, pred, foreign, us, idle_months, idle_emoji, idle_advice, now)
+                    prob, pred, foreign, idle_months, idle_emoji, idle_advice, now)
     for ch in channels:
         await ch.send(msg)
         log.info(f'日報發送至 {ch.guild.name}')
@@ -835,7 +836,14 @@ async def cmd_help(ctx):
 # ── 啟動 ──
 @bot.event
 async def on_ready():
+    global _initialized
     log.info(f'Bot 上線：{bot.user}')
+
+    # on_ready 每次重連都會觸發，用旗標確保初始化只執行一次
+    if _initialized:
+        log.info('重新連線，跳過重複初始化')
+        return
+    _initialized = True
 
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
@@ -850,10 +858,11 @@ async def on_ready():
             weekday = now_tw.weekday()  # 0=週一, 4=週五
             hour, minute = now_tw.hour, now_tw.minute
             is_market_open = (
-                weekday < 5 and  # 週一到週五
-                (hour == 9 and minute >= 0) or
-                (10 <= hour <= 12) or
-                (hour == 13 and minute <= 30)
+                weekday < 5 and (
+                    (hour == 9) or
+                    (10 <= hour <= 12) or
+                    (hour == 13 and minute <= 30)
+                )
             )
             if is_market_open:
                 await job_price_check()
