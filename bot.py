@@ -2,9 +2,9 @@
 📊 投資監控 Discord 機器人
 功能：
   • 每日 09:00 自動日報
-  • 開盤時間（09:00~13:30）每15分鐘偵測，觸發才推播
-  • 每日 14:00 收盤後更新 data.json
-  • 每週一週報 / 每月1日子彈閒置提醒
+  • 每 13~17 分鐘靜默偵測，觸發才推播
+  • 每週一週報
+  • 每月1日子彈閒置提醒
   • 每30分鐘推送 data.json 到 GitHub（供網頁使用）
   • 多伺服器支援，/斜線指令
 """
@@ -158,6 +158,14 @@ def fetch_historical():
         'high60_date': high60_date,
         'high60_days': int(high60_days),
     }
+
+def fetch_us_market():
+    """
+    美股資料（可選）。
+    目前 Railway 無法存取 Yahoo Finance，回傳空字典不影響主功能。
+    未來可替換為其他 API（如 Alpha Vantage）。
+    """
+    return {}
 
 def fetch_foreign_flow():
     """外資買賣超"""
@@ -315,6 +323,7 @@ def get_cache():
     if _cache_date != today or not _cache:
         log.info('更新資料快取...')
         hist = fetch_historical()
+        us   = fetch_us_market()
         _cache = {'hist': hist}
         _cache_date = today
     return _cache
@@ -401,6 +410,8 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
     price = rt['price'] if rt else 0
     chg   = rt['chg']   if rt else 0
     label = rt['label'] if rt else '--'
+    h60   = '（詳見 data.json）'
+
     prob_txt = '目前回檔未達 8% 門檻' if not prob else (
         f"歷史跌超{prob['thresh']}%共 **{prob['count']}次** ｜ "
         f"{prob['days']}日內回前高 **{prob['pct']}%** ｜ "
@@ -489,12 +500,49 @@ def fmt_weekly(twii, price, drawdown, ind, score, light, title, now):
 #  🔧  多伺服器頻道管理
 # ══════════════════════════════════════════
 def load_channels():
+    """從 GitHub 讀取 channels.json，Railway 重啟後仍能保留設定"""
+    if not GITHUB_TOKEN:
+        if os.path.exists(CHANNELS_FILE):
+            with open(CHANNELS_FILE) as f: return json.load(f)
+        return {}
+    try:
+        api_url = (f'https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}'
+                   f'/contents/{CHANNELS_FILE}')
+        headers = {'Authorization': f'token {GITHUB_TOKEN}',
+                   'Accept': 'application/vnd.github.v3+json'}
+        r = requests.get(api_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            content = base64.b64decode(r.json()['content']).decode('utf-8')
+            return json.loads(content)
+    except Exception as e:
+        log.warning(f'讀取 channels.json: {e}')
     if os.path.exists(CHANNELS_FILE):
         with open(CHANNELS_FILE) as f: return json.load(f)
     return {}
 
 def save_channels(data):
+    """同時存到本地和 GitHub"""
+    # 存本地
     with open(CHANNELS_FILE, 'w') as f: json.dump(data, f)
+    # 推到 GitHub
+    if not GITHUB_TOKEN: return
+    try:
+        api_url = (f'https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}'
+                   f'/contents/{CHANNELS_FILE}')
+        headers = {'Authorization': f'token {GITHUB_TOKEN}',
+                   'Accept': 'application/vnd.github.v3+json'}
+        r = requests.get(api_url, headers=headers, timeout=10)
+        sha = r.json().get('sha', '') if r.status_code == 200 else ''
+        content = base64.b64encode(
+            json.dumps(data, ensure_ascii=False).encode('utf-8')
+        ).decode('utf-8')
+        payload = {'message': f'update channels.json',
+                   'content': content, 'branch': GITHUB_BRANCH}
+        if sha: payload['sha'] = sha
+        requests.put(api_url, headers=headers, json=payload, timeout=15)
+        log.info('channels.json 已同步到 GitHub')
+    except Exception as e:
+        log.warning(f'寫入 channels.json: {e}')
 
 async def get_all_channels():
     data = load_channels()
@@ -549,6 +597,7 @@ async def job_daily_report():
 
     cache = get_cache()
     hist  = cache.get('hist')
+    us    = cache.get('us', {})
     if not hist:
         for ch in channels: await ch.send('⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。')
         return
@@ -583,7 +632,7 @@ async def job_daily_report():
     push_data_json(data)
 
 async def job_price_check():
-    """開盤時間（09:00~13:30）每15分鐘偵測，觸發才推播"""
+    """每 13~17 分鐘靜默偵測"""
     global _last_alert_lvl
     rt = fetch_0050_realtime()
     if not rt: return
@@ -724,7 +773,7 @@ async def _do_help(send):
         '**⏰ 自動排程**',
         '每日 09:00（週一至五）— 日報',
         '每週一 09:00         — 週報',
-        '開盤時間 09:00~13:30  — 每15分鐘偵測（觸發才推播）',
+        '每 13~17 分鐘         — 靜默偵測（觸發才推播）',
         '每30分鐘              — 更新網頁資料',
         '每月1日               — 子彈閒置提醒',
         '',
@@ -791,8 +840,8 @@ async def on_ready():
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
     scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0, day=1)
-    scheduler.add_job(job_push_data,     'interval', minutes=30)
-    scheduler.add_job(job_push_data,     'cron', hour=14, minute=0, day_of_week='mon-fri')
+    scheduler.add_job(job_push_data, 'interval', minutes=30, id='push_interval')
+    scheduler.add_job(job_push_data, 'cron', hour=14, minute=0, day_of_week='mon-fri', id='push_close')
 
     async def market_hour_check():
         """只在開盤時間（09:00~13:30）每15分鐘偵測一次"""
