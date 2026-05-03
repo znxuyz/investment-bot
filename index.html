@@ -163,7 +163,7 @@ body::before{content:'';position:fixed;inset:0;
   </div>
 
   <div class="disc">
-    資料由 Discord Bot 每30分鐘更新一次<br>
+    資料由 Discord Bot 每15分鐘（盤中09:00–14:00）/ 收盤後15:30 更新一次<br>
     本儀表板僅供個人參考，非投資建議。技術指標不保證未來報酬。
   </div>
 </div>
@@ -259,58 +259,60 @@ function render(d){
       </div>
     </div>
 
-    <!-- 技術指標 + 歷史機率 -->
-    <div class="g2">
-      <div class="card">
-        <div class="ct">🔬 技術指標</div>
-        <div class="irow">
-          <span class="iname">RSI (14)</span>
-          <div style="display:flex;align-items:center;gap:7px">
-            <span class="ival" style="color:${e.rsi<30?'var(--green)':e.rsi>70?'var(--red)':'var(--text)'}">${e.rsi.toFixed(1)}</span>
-            <span class="ibadge ${e.rsi<30?'bok':e.rsi>70?'bdanger':'bok'}">${e.rsi<30?'超賣':e.rsi>70?'超買':'正常'}</span>
-          </div>
-        </div>
-        <div class="irow"><span class="iname">乖離率 20日</span><span class="ival" style="color:${e.bias20<-3?'var(--green)':e.bias20>3?'var(--red)':'var(--text)'}">${(e.bias20>0?'+':'')+e.bias20.toFixed(2)}%</span></div>
-        <div class="irow"><span class="iname">乖離率 60日</span><span class="ival" style="color:${e.bias60<-3?'var(--green)':e.bias60>3?'var(--red)':'var(--text)'}">${(e.bias60>0?'+':'')+e.bias60.toFixed(2)}%</span></div>
-        <div class="irow">
-          <span class="iname">MA20</span>
-          <div style="display:flex;align-items:center;gap:7px">
-            <span class="ival">${e.ma20.toFixed(2)}</span>
-            <span class="ibadge ${e.above_ma20?'bok':'bdanger'}">${e.above_ma20?'上方':'下方'}</span>
-          </div>
-        </div>
-        <div class="irow">
-          <span class="iname">MA60</span>
-          <div style="display:flex;align-items:center;gap:7px">
-            <span class="ival">${e.ma60.toFixed(2)}</span>
-            <span class="ibadge ${e.above_ma60?'bok':'bdanger'}">${e.above_ma60?'上方':'下方'}</span>
-          </div>
-        </div>
-        <div class="irow"><span class="iname">MACD</span><span class="ival" style="color:${e.macd_hist>0&&e.macd<0?'var(--green)':e.macd_hist>0?'var(--blue)':'var(--red)'}">${e.macd_hist>0&&e.macd<0?'↗ 底部翻正':e.macd_hist>0?'↗ 正值':'↘ 負值'}</span></div>
-      </div>
-
-      <div class="card">
-        <div class="ct">📜 歷史回檔機率</div>
-        ${prob?`
-          <div style="margin-bottom:14px;padding:9px;background:rgba(245,166,35,0.06);border-radius:7px;border:1px solid rgba(245,166,35,0.15)">
-            <div style="font-size:11px;color:var(--gold);margin-bottom:3px;font-family:var(--mono)">觸發：跌超 ${prob.thresh}% 門檻</div>
-            <div style="font-size:12px;color:var(--muted);line-height:1.9">
-              歷史共 <b style="color:var(--text)">${prob.count}</b> 次<br>
-              ${prob.days}日內回前高：<b style="color:var(--green)">${prob.rec}/${prob.count}次（${prob.pct}%）</b>
+    <!-- 技術指標 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="ct">🔬 技術指標</div>
+      <div class="g2" style="margin-bottom:0;gap:0">
+        <div>
+          <div class="irow">
+            <span class="iname">RSI (14)</span>
+            <div style="display:flex;align-items:center;gap:7px">
+              <span class="ival" style="color:${e.rsi<30?'var(--green)':e.rsi>70?'var(--red)':'var(--text)'}">${e.rsi.toFixed(1)}</span>
+              <span class="ibadge ${e.rsi<30?'bok':e.rsi>70?'bdanger':'bok'}">${e.rsi<30?'超賣':e.rsi>70?'超買':'正常'}</span>
             </div>
           </div>
-          <div class="prow">
-            <div class="phdr"><span class="plbl2">平均反彈</span><span class="ppct" style="color:var(--green)">+${prob.bounce}%</span></div>
-            <div class="ptrack"><div class="pfill" style="width:${Math.min(prob.bounce/50*100,100)}%;background:var(--green)"></div></div>
+          <div class="irow"><span class="iname">乖離率 20日</span><span class="ival" style="color:${e.bias20<-3?'var(--green)':e.bias20>3?'var(--red)':'var(--text)'}">${(e.bias20>0?'+':'')+e.bias20.toFixed(2)}%</span></div>
+          <div class="irow"><span class="iname">乖離率 60日</span><span class="ival" style="color:${e.bias60<-3?'var(--green)':e.bias60>3?'var(--red)':'var(--text)'}">${(e.bias60>0?'+':'')+e.bias60.toFixed(2)}%</span></div>
+        </div>
+        <div>
+          <div class="irow">
+            <span class="iname">MA20</span>
+            <div style="display:flex;align-items:center;gap:7px">
+              <span class="ival">${e.ma20.toFixed(2)}</span>
+              <span class="ibadge ${e.above_ma20?'bok':'bdanger'}">${e.above_ma20?'上方':'下方'}</span>
+            </div>
           </div>
-          <div class="prow">
-            <div class="phdr"><span class="plbl2">最大繼跌</span><span class="ppct" style="color:var(--red)">-${prob.maxdrop}%</span></div>
-            <div class="ptrack"><div class="pfill" style="width:${Math.min(prob.maxdrop/50*100,100)}%;background:var(--red)"></div></div>
-          </div>`
-        :`<div style="color:var(--muted);font-size:13px;text-align:center;padding:28px 0">
-            目前回檔未達 8% 門檻<br>
-            <span style="font-size:11px">持續定額，無需特別行動</span>
-          </div>`}
+          <div class="irow">
+            <span class="iname">MA60</span>
+            <div style="display:flex;align-items:center;gap:7px">
+              <span class="ival">${e.ma60.toFixed(2)}</span>
+              <span class="ibadge ${e.above_ma60?'bok':'bdanger'}">${e.above_ma60?'上方':'下方'}</span>
+            </div>
+          </div>
+          <div class="irow"><span class="iname">MACD</span><span class="ival" style="color:${e.macd_hist>0&&e.macd<0?'var(--green)':e.macd_hist>0?'var(--blue)':'var(--red)'}">${e.macd_hist>0&&e.macd<0?'↗ 底部翻正':e.macd_hist>0?'↗ 正值':'↘ 負值'}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 近期回檔機率 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="ct">🔭 近期回檔機率</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+        <div style="text-align:center;flex-shrink:0">
+          <div style="font-size:36px;line-height:1">${pred.emoji}</div>
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.score}<small style="font-size:11px;color:var(--muted)">/100</small></div>
+          <div style="font-size:11px;color:var(--muted)">回檔機率</div>
+        </div>
+        <div style="flex:1;min-width:150px">
+          <div style="font-size:13px;font-weight:700;margin-bottom:4px">機率等級：<span style="color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.level}</span></div>
+          <div style="font-size:13px;margin-bottom:8px">可能幅度：<span style="font-family:var(--mono);font-weight:700">${pred.range}</span></div>
+          <div style="font-size:12px;color:var(--muted);padding:8px 10px;border-radius:6px;border-left:3px solid ${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'};background:rgba(255,255,255,0.03)">${pred.advice}</div>
+        </div>
+      </div>
+      <div style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)">評估依據</div>
+      ${pred.signals?.length?pred.signals.map(s=>`<span class="stag">${s}</span>`).join(''):'<span style="color:var(--muted);font-size:12px">目前無過熱訊號，市場相對健康</span>'}
+      <div style="margin-top:10px;font-size:11px;color:var(--muted);line-height:1.7;padding-top:8px;border-top:1px solid var(--border)">
+        ⚠️ 統計機率，不保證一定發生。回檔機率高代表應備妥子彈，仍需等真實觸發門檻（-8%/-15%/-20%）才行動。
       </div>
     </div>
 
@@ -330,28 +332,6 @@ function render(d){
             ${b.active?'<span style="margin-left:auto;font-size:16px">👈</span>':''}
           </div>`).join('')}
         </div>
-    </div>
-
-    <!-- 回測機率預測 -->
-    <div class="card" style="margin-bottom:14px">
-      <div class="ct">🔭 近期回測機率預測</div>
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap">
-        <div style="text-align:center;flex-shrink:0">
-          <div style="font-size:36px;line-height:1">${pred.emoji}</div>
-          <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.score}<small style="font-size:11px;color:var(--muted)">/100</small></div>
-          <div style="font-size:11px;color:var(--muted)">回測機率</div>
-        </div>
-        <div style="flex:1;min-width:150px">
-          <div style="font-size:13px;font-weight:700;margin-bottom:4px">機率等級：<span style="color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.level}</span></div>
-          <div style="font-size:13px;margin-bottom:8px">可能幅度：<span style="font-family:var(--mono);font-weight:700">${pred.range}</span></div>
-          <div style="font-size:12px;color:var(--muted);padding:8px 10px;border-radius:6px;border-left:3px solid ${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'};background:rgba(255,255,255,0.03)">${pred.advice}</div>
-        </div>
-      </div>
-      <div style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)">評估依據</div>
-      ${pred.signals?.length?pred.signals.map(s=>`<span class="stag">${s}</span>`).join(''):'<span style="color:var(--muted);font-size:12px">目前無過熱訊號，市場相對健康</span>'}
-      <div style="margin-top:10px;font-size:11px;color:var(--muted);line-height:1.7;padding-top:8px;border-top:1px solid var(--border)">
-        ⚠️ 統計機率，不保證一定發生。回測機率高代表應備妥子彈，仍需等真實觸發門檻（-8%/-15%/-20%）才行動。
-      </div>
     </div>
 
     <!-- 子彈閒置狀況 -->
@@ -376,7 +356,42 @@ function render(d){
         ※ 閒置計時以「0050實際觸發加碼門檻（-8%）」為準
       </div>
     </div>
+
+    <!-- 歷史回檔記錄 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="ct">📜 歷史回檔記錄</div>
+      ${prob?`
+        <div style="margin-bottom:14px;padding:9px;background:rgba(245,166,35,0.06);border-radius:7px;border:1px solid rgba(245,166,35,0.15)">
+          <div style="font-size:11px;color:var(--gold);margin-bottom:3px;font-family:var(--mono)">觸發：跌超 ${prob.thresh}% 門檻</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.9">
+            歷史共 <b style="color:var(--text)">${prob.count}</b> 次<br>
+            ${prob.days}日內回前高：<b style="color:var(--green)">${prob.rec}/${prob.count}次（${prob.pct}%）</b>
+          </div>
+        </div>
+        <div class="prow">
+          <div class="phdr"><span class="plbl2">平均反彈</span><span class="ppct" style="color:var(--green)">+${prob.bounce}%</span></div>
+          <div class="ptrack"><div class="pfill" style="width:${Math.min(prob.bounce/50*100,100)}%;background:var(--green)"></div></div>
+        </div>
+        <div class="prow">
+          <div class="phdr"><span class="plbl2">最大繼跌</span><span class="ppct" style="color:var(--red)">-${prob.maxdrop}%</span></div>
+          <div class="ptrack"><div class="pfill" style="width:${Math.min(prob.maxdrop/50*100,100)}%;background:var(--red)"></div></div>
+        </div>`
+      :`<div style="color:var(--muted);font-size:13px;text-align:center;padding:28px 0">
+          目前回檔未達 8% 門檻<br>
+          <span style="font-size:11px">持續定額，無需特別行動</span>
+        </div>`}
+    </div>
   `;
+}
+
+// ── 市場時間判斷（週一~五 09:00–13:30 台灣時間）──
+function isMarketHours(){
+  const now = new Date();
+  // 轉換為台灣時間 (UTC+8)
+  const tw = new Date(now.toLocaleString('en-US', {timeZone:'Asia/Taipei'}));
+  const d = tw.getDay(), h = tw.getHours(), m = tw.getMinutes();
+  if(d===0||d===6) return false;
+  return (h===9) || (h>=10&&h<=12) || (h===13&&m<=30);
 }
 
 // ── 主流程 ──
@@ -389,8 +404,10 @@ async function load(){
     render(data);
     const upd = data.updated?new Date(data.updated):new Date();
     document.getElementById('utime').textContent=`更新：${upd.toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`;
-    document.getElementById('mstat').textContent=data.market_open?'盤中即時':'休市・最後收盤';
-    document.getElementById('mstat').style.color=data.market_open?'var(--green)':'var(--muted)';
+    const open = isMarketHours();
+    document.getElementById('mstat').textContent=open?'盤中即時':'休市・最後收盤';
+    document.getElementById('mstat').style.color=open?'var(--green)':'var(--muted)';
+    document.getElementById('udot').style.background=open?'var(--green)':'var(--muted)';
   }catch(e){
     document.getElementById('main').innerHTML=`<div class="err">⚠️ 無法載入資料<br><small style="color:var(--muted)">${e.message}</small><br><br>可能原因：Bot 尚未推送資料，請稍後再試<br>或輸入 /report 讓 Bot 立即更新</div>`;
     document.getElementById('utime').textContent='載入失敗';
