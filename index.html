@@ -286,7 +286,7 @@ function render(d){
             <span class="ibadge ${e.above_ma60?'bok':'bdanger'}">${e.above_ma60?'上方':'下方'}</span>
           </div>
         </div>
-        <div class="irow"><span class="iname">MACD</span><span class="ival" style="color:${e.macd_hist>0?'var(--green)':'var(--red)'}">${e.macd_hist>0?'↗ 翻正':'↘ 負值'}</span></div>
+        <div class="irow"><span class="iname">MACD</span><span class="ival" style="color:${e.macd_hist>0&&e.macd<0?'var(--green)':e.macd_hist>0?'var(--blue)':'var(--red)'}">${e.macd_hist>0&&e.macd<0?'↗ 底部翻正':e.macd_hist>0?'↗ 正值':'↘ 負值'}</span></div>
       </div>
 
       <div class="card">
