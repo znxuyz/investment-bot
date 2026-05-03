@@ -591,7 +591,10 @@ _initialized = False
 # ── 排程任務 ──
 
 async def job_push_data():
-    """每30分鐘：計算所有資料並推送 data.json"""
+    """每30分鐘：計算所有資料並推送 data.json（僅交易日 09:00~14:30）"""
+    now_tw = datetime.now(TW_TZ)
+    if now_tw.weekday() >= 5 or not (9 <= now_tw.hour <= 14):
+        return
     cache = get_cache()
     hist = cache.get('hist')
     if not hist: log.warning('歷史資料不足，跳過推送'); return
