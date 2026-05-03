@@ -453,7 +453,7 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
         f"    RSI：{ind['rsi']:.1f}  {'⚠️ 超賣' if ind['rsi']<30 else '⚠️ 超買' if ind['rsi']>70 else '✅ 正常'}",
         f"    乖離率（20日）：{ind['bias20']:+.2f}%",
         f"    乖離率（60日）：{ind['bias60']:+.2f}%",
-        f"    MACD：{'↗️ 翻正' if ind['macd_hist']>0 else '↘️ 負值'}",
+        f"    MACD：{'↗️ 底部翻正' if ind['macd_hist']>0 and ind.get('macd',0)<0 else ('↗️ 正值' if ind['macd_hist']>0 else '↘️ 負值')}",
         f"    MA20：{'上方✅' if ind['above_ma20'] else '下方⚠️'} ｜ MA60：{'上方✅' if ind['above_ma60'] else '下方⚠️'}",
 
         '',
@@ -910,10 +910,7 @@ async def on_ready():
     await asyncio.sleep(3)
     await job_push_data()
 
-    channels = await get_all_channels()
-    for ch in channels:
-        await ch.send('✅ **投資監控機器人已上線！**\n輸入 `/說明` 查看指令 ｜ `/check` 查看當前狀況')
-    log.info(f'已通知 {len(channels)} 個伺服器')
+    log.info('Bot 初始化完成，開始監控')
 
 if __name__ == '__main__':
     bot.run(BOT_TOKEN)
