@@ -561,6 +561,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 scheduler = AsyncIOScheduler(timezone=TW_TZ)
 _last_alert_lvl = 0
+_initialized = False
 
 # ── 排程任務 ──
 
@@ -835,7 +836,14 @@ async def cmd_help(ctx):
 # ── 啟動 ──
 @bot.event
 async def on_ready():
+    global _initialized
     log.info(f'Bot 上線：{bot.user}')
+
+    # on_ready 每次重連都會觸發，用旗標確保初始化只執行一次
+    if _initialized:
+        log.info('重新連線，跳過重複初始化')
+        return
+    _initialized = True
 
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
