@@ -587,19 +587,54 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 scheduler = AsyncIOScheduler(timezone=TW_TZ)
 _last_alert_lvl = 0
 _initialized = False
+_market_open_today = False  # 今日市場是否曾開盤（用於判斷國定假日）
+_today_open_date   = None
 
 # ── 排程任務 ──
 
-async def job_push_data():
-    """每30分鐘：計算所有資料並推送 data.json（僅交易日 09:00~14:30）"""
-    now_tw = datetime.now(TW_TZ)
-    if now_tw.weekday() >= 5 or not (9 <= now_tw.hour <= 14):
-        return
-    cache = get_cache()
-    hist = cache.get('hist')
-    if not hist: log.warning('歷史資料不足，跳過推送'); return
+async def job_push_data(is_close_push=False, force=False):
+    """推送 data.json 到 GitHub。
 
-    rt      = fetch_0050_realtime()
+    force=True          啟動時強制推送，不受時間限制。
+    is_close_push=True  15:30 收盤推送：今天市場沒開過（國定假日）則跳過，
+                        並強制刷新快取以納入今日收盤資料。
+    預設（盤中）        週一~五 09:00~13:59、且 TWSE 確認市場開盤才推送。
+    """
+    global _market_open_today, _today_open_date
+    now_tw = datetime.now(TW_TZ)
+    today  = date.today()
+
+    if _today_open_date != today:
+        _market_open_today = False
+        _today_open_date   = today
+
+    if not force:
+        if is_close_push:
+            # 國定假日（今天沒開盤）跳過
+            if now_tw.weekday() >= 5 or not _market_open_today:
+                return
+        else:
+            # 盤中：僅週一~五 09:00~13:59
+            if now_tw.weekday() >= 5 or not (9 <= now_tw.hour < 14):
+                return
+
+    if is_close_push:
+        global _cache_date
+        _cache_date = None  # 強制刷新，確保 15:30 能拿到今日收盤的歷史資料
+
+    cache = get_cache()
+    hist  = cache.get('hist')
+    if not hist:
+        log.warning('歷史資料不足，跳過推送')
+        return
+
+    rt = fetch_0050_realtime()
+
+    if not force and not is_close_push:
+        if not rt or not rt.get('is_open'):
+            return          # 國定假日：盤中時段 is_open 為 False
+        _market_open_today = True  # 確認今天市場有開
+
     twii    = fetch_twii()
     foreign = fetch_foreign_flow()
     closes  = hist['closes']
@@ -876,8 +911,9 @@ async def on_ready():
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
     scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0, day=1)
-    scheduler.add_job(job_push_data, 'interval', minutes=30, id='push_interval')
-    scheduler.add_job(job_push_data, 'cron', hour=14, minute=0, day_of_week='mon-fri', id='push_close')
+    scheduler.add_job(job_push_data, 'interval', minutes=15, id='push_interval')
+    scheduler.add_job(job_push_data, 'cron', hour=15, minute=30, day_of_week='mon-fri', id='push_close',
+                      kwargs={'is_close_push': True})
 
     async def market_hour_check():
         """只在開盤時間（09:00~13:30）每15分鐘偵測一次"""
@@ -911,7 +947,7 @@ async def on_ready():
 
     # 上線時立刻推送一次 data.json
     await asyncio.sleep(3)
-    await job_push_data()
+    await job_push_data(force=True)
 
     log.info('Bot 初始化完成，開始監控')
 
