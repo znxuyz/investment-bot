@@ -124,7 +124,7 @@ def fetch_monthly_twse(year, month):
 
 def fetch_historical():
     """用 TWSE 官方 API 抓 0050 歷史日線（不依賴 yfinance）"""
-    now = datetime.now()
+    now = datetime.now(TW_TZ)  # 用台灣時區，避免 Railway(UTC) 在月底前8小時取錯月份
     all_data = []
     for i in range(5, -1, -1):
         month = now.month - i
@@ -304,6 +304,7 @@ def load_last_trigger():
             elif r.status_code == 404:
                 # 首次部署：GitHub 上尚無檔案，寫入預設日期
                 save_last_trigger(default)
+                return default
         except Exception as e:
             log.warning(f'讀取 last_trigger.json: {e}')
     if os.path.exists(IDLE_FILE):
@@ -476,13 +477,13 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
         f"**🎯 多指標共振評分：{score}/100**",
         *([f'    • {s}' for s in signals] if signals else ['    • 無顯著訊號']),
         '',
-        '**📜 歷史回檔機率**',
+        '**📜 歷史回檔記錄**',
         f'    {prob_txt}',
         '',
         f"**{light} {title}**",
         f"    {action}",
         '',
-        '**🔭 近期回測機率預測**',
+        '**🔭 近期回檔機率**',
         f"    {pred['emoji']} 機率：**{pred['level']}**（{pred['score']}/100）",
         f"    可能幅度：`{pred['range']}`",
         f"    建議：{pred['advice']}",
@@ -752,6 +753,8 @@ async def job_daily_report():
         prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
     )
     push_data_json(data)
+    global _last_push_data
+    _last_push_data = data  # 確保 fallback 快取有最新資料
 
 async def job_price_check():
     """每 13~17 分鐘靜默偵測"""
