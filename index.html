@@ -215,6 +215,7 @@ function render(d){
 
   document.getElementById('main').innerHTML = `
     <div class="datasrc">資料由 Bot 於 ${d.updated?new Date(d.updated).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'--'} 更新</div>
+    ${d.stale?`<div style="text-align:center;font-size:11px;color:var(--yellow);background:rgba(255,214,10,0.07);border:1px solid rgba(255,214,10,0.2);border-radius:6px;padding:6px 12px;margin-bottom:10px">⚠️ API 暫時無法取得最新資料，顯示上次數據</div>`:''}
 
     <!-- 主燈號卡 -->
     <div class="scard ${signal(e.light)}">
