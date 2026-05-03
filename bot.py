@@ -21,7 +21,6 @@ import pandas as pd
 import numpy as np
 import discord
 from discord.ext import commands
-from discord import app_commands
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -125,8 +124,7 @@ def fetch_monthly_twse(year, month):
 
 def fetch_historical():
     """用 TWSE 官方 API 抓 0050 歷史日線（不依賴 yfinance）"""
-    from datetime import datetime as dt
-    now = dt.now()
+    now = datetime.now()
     all_data = []
     for i in range(5, -1, -1):
         month = now.month - i
@@ -158,14 +156,6 @@ def fetch_historical():
         'high60_date': high60_date,
         'high60_days': int(high60_days),
     }
-
-def fetch_us_market():
-    """
-    美股資料（可選）。
-    目前 Railway 無法存取 Yahoo Finance，回傳空字典不影響主功能。
-    未來可替換為其他 API（如 Alpha Vantage）。
-    """
-    return {}
 
 def fetch_foreign_flow():
     """外資買賣超"""
@@ -294,14 +284,48 @@ def predict_correction(closes, ind):
 #  💰  子彈閒置
 # ══════════════════════════════════════════
 def load_last_trigger():
+    """優先從 GitHub 讀取，Railway 重啟後仍保留閒置計時"""
+    if GITHUB_TOKEN:
+        try:
+            api_url = (f'https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}'
+                       f'/contents/{IDLE_FILE}')
+            headers = {'Authorization': f'token {GITHUB_TOKEN}',
+                       'Accept': 'application/vnd.github.v3+json'}
+            r = requests.get(api_url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                content = base64.b64decode(r.json()['content']).decode('utf-8')
+                return date.fromisoformat(json.loads(content).get('date', str(date.today())))
+        except Exception as e:
+            log.warning(f'讀取 last_trigger.json: {e}')
     if os.path.exists(IDLE_FILE):
         with open(IDLE_FILE) as f:
             return date.fromisoformat(json.load(f).get('date', str(date.today())))
     return date.today()
 
 def save_last_trigger():
+    """同時存本地與 GitHub，確保重啟後不流失"""
+    payload_data = {'date': str(date.today())}
     with open(IDLE_FILE, 'w') as f:
-        json.dump({'date': str(date.today())}, f)
+        json.dump(payload_data, f)
+    if not GITHUB_TOKEN:
+        return
+    try:
+        api_url = (f'https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}'
+                   f'/contents/{IDLE_FILE}')
+        headers = {'Authorization': f'token {GITHUB_TOKEN}',
+                   'Accept': 'application/vnd.github.v3+json'}
+        r = requests.get(api_url, headers=headers, timeout=10)
+        sha = r.json().get('sha', '') if r.status_code == 200 else ''
+        content = base64.b64encode(
+            json.dumps(payload_data, ensure_ascii=False).encode('utf-8')
+        ).decode('utf-8')
+        body = {'message': 'update last_trigger.json', 'content': content, 'branch': GITHUB_BRANCH}
+        if sha:
+            body['sha'] = sha
+        requests.put(api_url, headers=headers, json=body, timeout=15)
+        log.info('last_trigger.json 已同步到 GitHub')
+    except Exception as e:
+        log.warning(f'寫入 last_trigger.json: {e}')
 
 def bullet_idle_status():
     last = load_last_trigger()
@@ -324,7 +348,6 @@ def get_cache():
     if _cache_date != today or not _cache:
         log.info('更新資料快取...')
         hist = fetch_historical()
-        us   = fetch_us_market()
         _cache = {'hist': hist}
         _cache_date = today
     return _cache
@@ -411,7 +434,6 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
     price = rt['price'] if rt else 0
     chg   = rt['chg']   if rt else 0
     label = rt['label'] if rt else '--'
-    h60   = '（詳見 data.json）'
 
     prob_txt = '目前回檔未達 8% 門檻' if not prob else (
         f"歷史跌超{prob['thresh']}%共 **{prob['count']}次** ｜ "
@@ -537,7 +559,7 @@ def save_channels(data):
         content = base64.b64encode(
             json.dumps(data, ensure_ascii=False).encode('utf-8')
         ).decode('utf-8')
-        payload = {'message': f'update channels.json',
+        payload = {'message': 'update channels.json',
                    'content': content, 'branch': GITHUB_BRANCH}
         if sha: payload['sha'] = sha
         requests.put(api_url, headers=headers, json=payload, timeout=15)
@@ -550,7 +572,10 @@ async def get_all_channels():
     result = []
     for gid, cid in data.items():
         ch = bot.get_channel(int(cid))
-        if ch: result.append(ch)
+        if ch:
+            result.append(ch)
+        else:
+            log.warning(f'找不到頻道 {cid}（伺服器 {gid}），可能已被移除')
     return result
 
 # ══════════════════════════════════════════
@@ -615,7 +640,7 @@ async def job_daily_report():
     light, title, action = get_signal(drawdown, score)
     prob = historical_prob(drawdown)
     pred = predict_correction(closes, ind)
-    idle_months, idle_emoji, idle_advice, _ = bullet_idle_status()
+    idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
     now  = datetime.now(TW_TZ)
 
     msg = fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
@@ -628,7 +653,7 @@ async def job_daily_report():
     data = build_data_json(
         rt, twii, hist, foreign, ind,
         drawdown, score, signals, light, title, action,
-        prob, pred, idle_months, idle_emoji, idle_advice, _
+        prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
     )
     push_data_json(data)
 
