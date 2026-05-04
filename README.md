@@ -109,7 +109,7 @@
 
 1. 前往 [github.com](https://github.com) → `New repository`
 2. 命名（例如：`investment-bot`），設為 **Public**（GitHub Pages 需要）
-3. 上傳所有檔案：`bot.py`、`requirements.txt`、`nixpacks.toml`、`Procfile`、`railway.json`、`index.html`
+3. 上傳所有檔案：`bot.py`、`requirements.txt`、`Dockerfile`、`Procfile`、`railway.json`、`index.html`
 
 ### Step 3：開啟 GitHub Pages
 
@@ -169,7 +169,7 @@ Bot 會自動將該頻道設為日報和警報的接收頻道。
 | 每日 09:00（週一至五） | 發送完整日報 |
 | 每週一 09:00 | 發送週報 + 行動清單 |
 | 每 13~17 分鐘（盤中） | 靜默偵測，觸發門檻才推播 |
-| 每 15 分鐘（09:00–14:00）| 更新網頁 data.json（盤中即時） |
+| 每 5 分鐘（09:05–13:30） | 更新網頁 data.json（盤中即時） |
 | 每日 15:30（週一至五） | 收盤推送：更新 data.json + 推播收盤摘要 |
 | 每月 1 日 09:00 | 子彈閒置提醒（閒置 3 個月以上才發送） |
 

@@ -8,7 +8,7 @@
 
 ## 📁 一、檔案清單與實際功能
 
-專案根目錄共 9 個運作中的檔案（不含 `.gitignore` 與 `README.md`），分為三類：**程式碼**、**狀態資料**、**部署配置**。
+專案根目錄含 `README.md` 與 `.gitignore` 共 11 個檔案。下列 **9 個** 是實際運作的程式 / 狀態 / 部署檔案，分為三類：**程式碼**、**狀態資料**、**部署配置**。
 
 ### 1. `bot.py`（1081 行，主程式）
 
@@ -217,7 +217,7 @@ HIST_DATA = {
 
 ## 📌 五、待辦清單
 
-按優先級排序，標註 **影響範圍** 與 **預估工作量**。
+按優先級排序，標註 **影響範圍**。
 
 ### 🔴 高優先（影響功能正確性）
 
@@ -229,11 +229,10 @@ HIST_DATA = {
 ### 🟡 中優先（穩定性與維護性）
 
 - [ ] **`Procfile` 與 `railway.json` 冗餘**：Railway 走 Dockerfile，`worker: python bot.py` 從未被使用。建議刪除以避免新人混淆。
-- [ ] **README 提到 `nixpacks.toml` 但檔案不存在**：`README.md:112` 列出上傳清單包含 `nixpacks.toml`，實際 repo 沒有。需移除該行或補上檔案。
 - [ ] **`cmd_help` 註冊為 `help2`**：因為 discord.py 內建 `help` 已存在，目前用 `!help2` 觸發。Slash 版的 `/說明` 沒問題，但 `!` 版本對使用者不直覺。
 - [ ] **`channels.json` 一伺服器只能一頻道**：`save_channels` 用 `data[str(guild_id)] = channel_id` 直接覆寫。如果使用者想同時推到「市場頻道」+「警報頻道」需擴充為 list。
 - [ ] **`_last_alert_lvl` 重啟後重置**：Railway 重啟後變 0，當天若已推過 −8% 警報，重啟後再達 −8% 會 **再推一次**。應與 `last_trigger.json` 一樣持久化。
-- [ ] **`market_hour_check` 與 cron `push_interval` 重疊**：盤中 09:05~13:55 有兩條路徑都會觸發資料抓取，造成 TWSE API 多餘請求。確認是否需合併。
+- [ ] **`market_hour_check` 與 cron `push_interval_*` 重疊**：盤中 09:05~13:30 有兩條路徑（`market_hour_check` loop 與 cron）都會觸發資料抓取，造成 TWSE API 多餘請求。確認是否需合併。
 
 ### 🟢 低優先（功能擴充）
 

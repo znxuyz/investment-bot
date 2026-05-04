@@ -5,7 +5,7 @@
   • 每 13~17 分鐘靜默偵測，觸發才推播
   • 每週一週報
   • 每月1日子彈閒置提醒
-  • 盤中每5分鐘（09:05起）/ 收盤後15:30 推送 data.json 到 GitHub（供網頁使用）
+  • 盤中每5分鐘（09:05–13:30）/ 收盤後15:30 推送 data.json 到 GitHub（供網頁使用）
   • 多伺服器支援，/斜線指令
 """
 
@@ -867,7 +867,15 @@ async def job_weekly_report():
     for ch in channels: await ch.send(msg)
 
 async def job_monthly_idle():
-    """每月1日 子彈閒置提醒"""
+    """每月第一個平日 子彈閒置提醒（1 號是週末則順延到下週一）"""
+    now_tw = datetime.now(TW_TZ)
+    # cron 已過濾 day=1~3 且為平日。再 gate 一次：只在「該月第一個平日」觸發
+    #   day=1：必為平日（cron 過濾），直接執行
+    #   day=2：今天必為週一（=1 號為週日）才執行
+    #   day=3：今天必為週一（=1 號為週六、2 號為週日）才執行
+    if now_tw.day != 1 and now_tw.weekday() != 0:
+        return
+
     channels = await get_all_channels()
     if not channels: return
 
@@ -941,7 +949,7 @@ async def _do_help(send):
         '每日 09:00（週一至五）— 日報',
         '每週一 09:00         — 週報',
         '每 13~17 分鐘         — 靜默偵測（觸發才推播）',
-        '每5分鐘（盤中09:05–13:55）/ 15:30（收盤）— 更新網頁資料',
+        '每5分鐘（盤中09:05–13:30）/ 15:30（收盤）— 更新網頁資料',
         '每月1日               — 子彈閒置提醒',
         '',
         '**💡 新伺服器加入後**',
@@ -1028,11 +1036,16 @@ async def on_ready():
 
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
-    scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0, day=1)
-    # 盤中每 5 分鐘更新網頁資料，從 09:05 開始（0050 通常延後開盤）
+    # 月度子彈閒置提醒：每月 1 號發；若 1 號為週末，順延到下個平日（內部 gate 控制）
+    scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0,
+                      day='1-3', day_of_week='mon-fri', id='monthly_idle')
+    # 盤中每 5 分鐘更新網頁資料：09:05–12:55（每 5 分鐘）+ 13:05–13:30（市場 13:30 收盤，之後不再推）
     scheduler.add_job(job_push_data, 'cron',
-                      hour='9-13', minute='5,10,15,20,25,30,35,40,45,50,55',
-                      day_of_week='mon-fri', id='push_interval')
+                      hour='9-12', minute='5,10,15,20,25,30,35,40,45,50,55',
+                      day_of_week='mon-fri', id='push_interval_am')
+    scheduler.add_job(job_push_data, 'cron',
+                      hour=13, minute='5,10,15,20,25,30',
+                      day_of_week='mon-fri', id='push_interval_pm')
     scheduler.add_job(job_push_data, 'cron', hour=15, minute=30, day_of_week='mon-fri', id='push_close',
                       kwargs={'is_close_push': True})
 

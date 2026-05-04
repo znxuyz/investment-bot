@@ -163,7 +163,7 @@ body::before{content:'';position:fixed;inset:0;
   </div>
 
   <div class="disc">
-    資料由 Discord Bot 每5分鐘（盤中09:05–13:55）/ 收盤後15:30 更新一次<br>
+    資料由 Discord Bot 每5分鐘（盤中09:05–13:30）/ 收盤後15:30 更新一次<br>
     本儀表板僅供個人參考，非投資建議。技術指標不保證未來報酬。
   </div>
 </div>
@@ -172,7 +172,6 @@ body::before{content:'';position:fixed;inset:0;
 // ── 工具函式 ──
 const fmtChg = v => v==null?'--':`${v>0?'+':''}${v.toFixed(2)}%`;
 const chgCls = v => v>0?'up':v<0?'dn':'fl';
-const chgColor = v => v>0?'var(--red)':v<0?'var(--green)':'var(--muted)';
 
 function signal(light){
   if(light==='🔴') return 'sr';
