@@ -714,15 +714,17 @@ async def job_push_data(is_close_push=False, force=False):
                 except Exception as e:
                     log.warning(f'收盤摘要推送失敗: {e}')
 
-async def job_daily_report():
-    """每日 09:00 日報"""
+async def job_daily_report(extra_send=None):
+    """每日 09:00 日報。extra_send 可傳入 callback 使結果也回覆給指令觸發者。"""
     channels = await get_all_channels()
-    if not channels: return
+    if not channels and not extra_send: return
 
     cache = get_cache()
     hist  = cache.get('hist')
     if not hist:
-        for ch in channels: await ch.send('⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。')
+        err = '⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。'
+        for ch in channels: await ch.send(err)
+        if extra_send: await extra_send(err)
         return
 
     rt      = fetch_0050_realtime()
@@ -745,6 +747,8 @@ async def job_daily_report():
     for ch in channels:
         await ch.send(msg)
         log.info(f'日報發送至 {ch.guild.name}')
+    if extra_send:
+        await extra_send(msg)
 
     # 同步推送 data.json
     data = build_data_json(
@@ -891,8 +895,9 @@ async def _do_help(send):
         '**📊 投資監控機器人 指令**',
         '`/設定頻道` — 將此頻道設為日報/警報頻道',
         '`/取消頻道` — 取消此伺服器的日報和警報',
-        '`/report`   — 手動觸發今日完整日報',
+        '`/report`   — 手動觸發今日完整日報（直接回覆給你）',
         '`/check`    — 快速查看當前 0050 狀況',
+        '`/status`   — 查看機器人運作狀態',
         '`/說明`     — 顯示此說明',
         '',
         '**⏰ 自動排程**',
@@ -922,8 +927,8 @@ async def slash_remove(interaction: discord.Interaction):
 @bot.tree.command(name='report', description='手動觸發今日完整市場日報')
 async def slash_report(interaction: discord.Interaction):
     await interaction.response.defer()
-    await interaction.followup.send('⏳ 正在抓取資料...')
-    await job_daily_report()
+    await interaction.followup.send('⏳ 正在抓取資料，請稍候...')
+    await job_daily_report(extra_send=interaction.followup.send)
 
 @bot.tree.command(name='check', description='快速查看當前 0050 即時狀況')
 async def slash_check(interaction: discord.Interaction):
@@ -934,6 +939,21 @@ async def slash_check(interaction: discord.Interaction):
 async def slash_help(interaction: discord.Interaction):
     await interaction.response.defer()
     await _do_help(interaction.followup.send)
+
+@bot.tree.command(name='status', description='查看機器人運作狀態')
+async def slash_status(interaction: discord.Interaction):
+    await interaction.response.defer()
+    now_tw = datetime.now(TW_TZ)
+    channel_map = load_channels()
+    msg = '\n'.join([
+        '**📊 機器人狀態**',
+        f"目前時間：{now_tw.strftime('%Y/%m/%d %H:%M')} (台灣)",
+        f"已設定頻道：{len(channel_map)} 個伺服器",
+        f"GitHub Token：{'✅ 已設定' if GITHUB_TOKEN else '❌ 未設定（網頁/頻道設定將無法持久化）'}",
+        f"資料快取：{'✅ 有上次推送資料' if _last_push_data else '⚠️ 尚無快取（本次重啟後未推送過）'}",
+        f"Scheduler：{'✅ 執行中' if scheduler.running else '❌ 未啟動'}",
+    ])
+    await interaction.followup.send(msg)
 
 # ── 傳統 ! 指令（相容用）──
 @bot.command(name='設定頻道')
@@ -1009,6 +1029,16 @@ async def on_ready():
     # 上線時立刻推送一次 data.json
     await asyncio.sleep(3)
     await job_push_data(force=True)
+
+    # 上線通知：讓使用者確認 Bot 有成功重啟
+    startup_channels = await get_all_channels()
+    if startup_channels:
+        startup_msg = f"✅ 機器人已上線 ｜ {datetime.now(TW_TZ).strftime('%Y/%m/%d %H:%M')}\n使用 `/status` 查看運作狀態。"
+        for ch in startup_channels:
+            try:
+                await ch.send(startup_msg)
+            except Exception as e:
+                log.warning(f'上線通知失敗: {e}')
 
     log.info('Bot 初始化完成，開始監控')
 
