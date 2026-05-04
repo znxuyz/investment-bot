@@ -919,7 +919,7 @@ async def _do_help(send):
         '每日 09:00（週一至五）— 日報',
         '每週一 09:00         — 週報',
         '每 13~17 分鐘         — 靜默偵測（觸發才推播）',
-        '每15分鐘（盤中09:00-14:00）/ 15:30（收盤）— 更新網頁資料',
+        '每5分鐘（盤中09:05–13:55）/ 15:30（收盤）— 更新網頁資料',
         '每月1日               — 子彈閒置提醒',
         '',
         '**💡 新伺服器加入後**',
@@ -1007,7 +1007,10 @@ async def on_ready():
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
     scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0, day=1)
-    scheduler.add_job(job_push_data, 'interval', minutes=15, id='push_interval')
+    # 盤中每 5 分鐘更新網頁資料，從 09:05 開始（0050 通常延後開盤）
+    scheduler.add_job(job_push_data, 'cron',
+                      hour='9-13', minute='5,10,15,20,25,30,35,40,45,50,55',
+                      day_of_week='mon-fri', id='push_interval')
     scheduler.add_job(job_push_data, 'cron', hour=15, minute=30, day_of_week='mon-fri', id='push_close',
                       kwargs={'is_close_push': True})
 
