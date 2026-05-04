@@ -160,6 +160,13 @@ def fetch_historical():
         'high60_days': int(high60_days),
     }
 
+def adjust_high_for_price(hist, price):
+    """即時價格超越近期高點時，臨時上調高點（僅影響當次計算，不寫快取）"""
+    if hist and price > hist['high60']:
+        now_str = datetime.now(TW_TZ).strftime('%Y/%m/%d')
+        return {**hist, 'high60': float(price), 'high60_date': now_str, 'high60_days': 0}
+    return hist
+
 def fetch_foreign_flow():
     """外資買賣超"""
     try:
@@ -691,8 +698,17 @@ async def job_push_data(is_close_push=False, force=False):
                     log.info('盤中啟動但 TWSE 尚無即時報價，跳過 force 推送')
                     return
                 # 非盤中時間的 force 推送（例如夜間重啟）繼續執行，但不標記開盤
+            elif _market_open_today and _last_push_data:
+                # 今天已確認開盤，但 TWSE 即時 API 暫時失效（如大漲大跌時伺服器延遲）
+                # → 重推上次快取，讓網頁不斷線，並標記為 stale
+                stale = dict(_last_push_data)
+                stale['stale'] = True
+                stale['updated'] = datetime.now(TW_TZ).isoformat()
+                push_data_json(stale)
+                log.warning('盤中 TWSE 即時 API 失效（is_open=False），重推上次快取（stale=True）')
+                return
             else:
-                return      # 國定假日：盤中時段 is_open 為 False
+                return      # 國定假日或尚未確認開盤（今日 is_open 從未為 True）
         else:
             _market_open_today = True  # 確認今天市場有開（is_open=True 才設定）
 
@@ -701,6 +717,7 @@ async def job_push_data(is_close_push=False, force=False):
     closes  = hist['closes']
     ind     = calc_all(closes)
     price   = rt['price'] if rt else closes[-1]
+    hist    = adjust_high_for_price(hist, price)
     drawdown = float((price - hist['high60']) / hist['high60'] * 100)
 
     score, signals = convergence_score(drawdown, ind, foreign)
@@ -748,6 +765,7 @@ async def job_daily_report(extra_send=None):
     closes  = hist['closes']
     ind     = calc_all(closes)
     price   = rt['price'] if rt else closes[-1]
+    hist    = adjust_high_for_price(hist, price)
     drawdown = float((price - hist['high60']) / hist['high60'] * 100)
 
     score, signals = convergence_score(drawdown, ind, foreign)
@@ -786,6 +804,7 @@ async def job_price_check():
     if not hist: return
 
     price    = rt['price']
+    hist     = adjust_high_for_price(hist, price)
     drawdown = (price - hist['high60']) / hist['high60'] * 100
 
     if drawdown <= -20: level = 3
@@ -836,6 +855,7 @@ async def job_weekly_report():
     closes  = hist['closes']
     ind     = calc_all(closes)
     price   = rt['price'] if rt else closes[-1]
+    hist    = adjust_high_for_price(hist, price)
     drawdown = (price - hist['high60']) / hist['high60'] * 100
     foreign  = fetch_foreign_flow()
     score, _ = convergence_score(drawdown, ind, foreign)
@@ -875,6 +895,7 @@ async def _do_check(send):
         return
     closes   = hist['closes']
     price    = rt['price']
+    hist     = adjust_high_for_price(hist, price)
     drawdown = (price - hist['high60']) / hist['high60'] * 100
     foreign  = fetch_foreign_flow()
     ind      = calc_all(closes)
