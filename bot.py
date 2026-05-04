@@ -5,7 +5,7 @@
   • 每 13~17 分鐘靜默偵測，觸發才推播
   • 每週一週報
   • 每月1日子彈閒置提醒
-  • 盤中每15分鐘 / 收盤後15:30 推送 data.json 到 GitHub（供網頁使用）
+  • 盤中每5分鐘（09:05起）/ 收盤後15:30 推送 data.json 到 GitHub（供網頁使用）
   • 多伺服器支援，/斜線指令
 """
 
@@ -14,6 +14,7 @@ import json
 import logging
 import asyncio
 import random
+import time
 import requests
 import base64
 import pytz
@@ -124,7 +125,6 @@ def fetch_monthly_twse(year, month):
 
 def fetch_historical():
     """用 TWSE 官方 API 抓 0050 歷史日線（不依賴 yfinance）"""
-    import time
     now = datetime.now(TW_TZ)  # 用台灣時區，避免 Railway(UTC) 在月底前8小時取錯月份
     all_data = []
     for i in range(5, -1, -1):
@@ -1050,7 +1050,7 @@ async def on_ready():
     except Exception as e:
         log.error(f'Slash 同步失敗: {e}')
 
-    # 上線時立刻推送一次 data.json（若盤中但 TWSE 尚無報價則跳過，等下一個 15 分鐘排程）
+    # 上線時立刻推送一次 data.json（若盤中但 TWSE 尚無報價則跳過，等下一個 5 分鐘排程）
     await asyncio.sleep(3)
     await job_push_data(force=True)
 
