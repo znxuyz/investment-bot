@@ -1039,16 +1039,6 @@ async def on_ready():
     await asyncio.sleep(3)
     await job_push_data(force=True)
 
-    # 上線通知：讓使用者確認 Bot 有成功重啟
-    startup_channels = await get_all_channels()
-    if startup_channels:
-        startup_msg = f"✅ 機器人已上線 ｜ {datetime.now(TW_TZ).strftime('%Y/%m/%d %H:%M')}\n使用 `/status` 查看運作狀態。"
-        for ch in startup_channels:
-            try:
-                await ch.send(startup_msg)
-            except Exception as e:
-                log.warning(f'上線通知失敗: {e}')
-
     log.info('Bot 初始化完成，開始監控')
 
 if __name__ == '__main__':
