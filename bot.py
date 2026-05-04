@@ -124,6 +124,7 @@ def fetch_monthly_twse(year, month):
 
 def fetch_historical():
     """用 TWSE 官方 API 抓 0050 歷史日線（不依賴 yfinance）"""
+    import time
     now = datetime.now(TW_TZ)  # 用台灣時區，避免 Railway(UTC) 在月底前8小時取錯月份
     all_data = []
     for i in range(5, -1, -1):
@@ -133,6 +134,8 @@ def fetch_historical():
             month += 12; year -= 1
         rows = fetch_monthly_twse(year, month)
         all_data.extend(rows)
+        if i > 0:
+            time.sleep(0.5)  # 每次請求間隔 0.5s，避免 TWSE 速率限制
 
     if len(all_data) < 20:
         log.warning(f'歷史資料不足: {len(all_data)}筆')
@@ -362,7 +365,8 @@ _cache_date = None
 def get_cache():
     global _cache, _cache_date
     today = date.today()
-    if _cache_date != today or not _cache:
+    # 換日或上次取得失敗（hist=None）時重新抓取，避免整天都用失敗快取
+    if _cache_date != today or not _cache.get('hist'):
         log.info('更新資料快取...')
         hist = fetch_historical()
         _cache = {'hist': hist}
@@ -686,9 +690,11 @@ async def job_push_data(is_close_push=False, force=False):
                 if h == 9 or (10 <= h <= 12) or (h == 13 and m <= 30):
                     log.info('盤中啟動但 TWSE 尚無即時報價，跳過 force 推送')
                     return
+                # 非盤中時間的 force 推送（例如夜間重啟）繼續執行，但不標記開盤
             else:
                 return      # 國定假日：盤中時段 is_open 為 False
-        _market_open_today = True  # 確認今天市場有開
+        else:
+            _market_open_today = True  # 確認今天市場有開（is_open=True 才設定）
 
     twii    = fetch_twii()
     foreign = fetch_foreign_flow()
@@ -975,8 +981,8 @@ async def cmd_remove(ctx):
 
 @bot.command(name='report')
 async def cmd_report(ctx):
-    await ctx.send('⏳ 正在抓取資料...')
-    await job_daily_report()
+    await ctx.send('⏳ 正在抓取資料，請稍候...')
+    await job_daily_report(extra_send=ctx.send)
 
 @bot.command(name='check')
 async def cmd_check(ctx):
@@ -1008,22 +1014,28 @@ async def on_ready():
     async def market_hour_check():
         """只在開盤時間（09:00~13:30）每15分鐘偵測一次"""
         while True:
-            now_tw = datetime.now(TW_TZ)
-            weekday = now_tw.weekday()  # 0=週一, 4=週五
-            hour, minute = now_tw.hour, now_tw.minute
-            is_market_open = (
-                weekday < 5 and (
-                    (hour == 9) or
-                    (10 <= hour <= 12) or
-                    (hour == 13 and minute <= 30)
+            try:
+                now_tw = datetime.now(TW_TZ)
+                weekday = now_tw.weekday()  # 0=週一, 4=週五
+                hour, minute = now_tw.hour, now_tw.minute
+                is_market_open = (
+                    weekday < 5 and (
+                        (hour == 9) or
+                        (10 <= hour <= 12) or
+                        (hour == 13 and minute <= 30)
+                    )
                 )
-            )
-            if is_market_open:
-                await job_price_check()
-                await asyncio.sleep(random.randint(13*60, 17*60))
-            else:
-                # 非開盤時間，每10分鐘檢查一次是否到開盤時間
-                await asyncio.sleep(10*60)
+                if is_market_open:
+                    await job_price_check()
+                    await asyncio.sleep(random.randint(13*60, 17*60))
+                else:
+                    # 非開盤時間，每10分鐘檢查一次是否到開盤時間
+                    await asyncio.sleep(10*60)
+            except asyncio.CancelledError:
+                raise  # 正常結束 task，不攔截
+            except Exception as e:
+                log.error(f'market_hour_check 發生錯誤: {e}')
+                await asyncio.sleep(60)  # 出錯後等 1 分鐘再繼續，不讓 loop 死掉
 
     asyncio.create_task(market_hour_check())
     scheduler.start()
@@ -1038,16 +1050,6 @@ async def on_ready():
     # 上線時立刻推送一次 data.json（若盤中但 TWSE 尚無報價則跳過，等下一個 15 分鐘排程）
     await asyncio.sleep(3)
     await job_push_data(force=True)
-
-    # 上線通知：讓使用者確認 Bot 有成功重啟
-    startup_channels = await get_all_channels()
-    if startup_channels:
-        startup_msg = f"✅ 機器人已上線 ｜ {datetime.now(TW_TZ).strftime('%Y/%m/%d %H:%M')}\n使用 `/status` 查看運作狀態。"
-        for ch in startup_channels:
-            try:
-                await ch.send(startup_msg)
-            except Exception as e:
-                log.warning(f'上線通知失敗: {e}')
 
     log.info('Bot 初始化完成，開始監控')
 
