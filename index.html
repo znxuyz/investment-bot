@@ -269,7 +269,7 @@ function render(d){
             <span class="iname">RSI (14)</span>
             <div style="display:flex;align-items:center;gap:7px">
               <span class="ival" style="color:${e.rsi<30?'var(--green)':e.rsi>70?'var(--red)':'var(--text)'}">${e.rsi.toFixed(1)}</span>
-              <span class="ibadge ${e.rsi<30?'bok':e.rsi>70?'bdanger':'bok'}">${e.rsi<30?'超賣':e.rsi>70?'超買':'正常'}</span>
+              <span class="ibadge ${e.rsi<30?'bok':e.rsi>70?'bdanger':'bwarn'}">${e.rsi<30?'超賣':e.rsi>70?'超買':'正常'}</span>
             </div>
           </div>
           <div class="irow"><span class="iname">乖離率 20日</span><span class="ival" style="color:${e.bias20<-3?'var(--green)':e.bias20>3?'var(--red)':'var(--text)'}">${(e.bias20>0?'+':'')+e.bias20.toFixed(2)}%</span></div>
@@ -347,7 +347,7 @@ function render(d){
       </div>
       <div class="itrack"><div style="height:100%;border-radius:4px;background:${idleColor};width:${idleBar}%"></div></div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;font-family:var(--mono)">
-        ${idle.months}/12 個月
+        ${idle.months>=12?'12+':idle.months}/12 個月
         ${idle.months>=6?`<span style="margin-left:8px;color:${idle.months>=12?'var(--red)':'var(--yellow)'}">▲ 建議行動</span>`:''}
       </div>
       <div style="font-size:13px;padding:10px;border-radius:8px;border-left:3px solid ${idleColor};background:rgba(255,255,255,0.03)">
