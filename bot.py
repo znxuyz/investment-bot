@@ -676,9 +676,18 @@ async def job_push_data(is_close_push=False, force=False):
 
     rt = fetch_0050_realtime()
 
-    if not force and not is_close_push:
+    if not is_close_push:
         if not rt or not rt.get('is_open'):
-            return          # 國定假日：盤中時段 is_open 為 False
+            if force:
+                # 啟動時若盤中但 TWSE 尚未播報即時報價（開盤初期），
+                # 跳過推送以免用「最後收盤價（休市中）」覆蓋較新的資料
+                h = datetime.now(TW_TZ).hour
+                m = datetime.now(TW_TZ).minute
+                if h == 9 or (10 <= h <= 12) or (h == 13 and m <= 30):
+                    log.info('盤中啟動但 TWSE 尚無即時報價，跳過 force 推送')
+                    return
+            else:
+                return      # 國定假日：盤中時段 is_open 為 False
         _market_open_today = True  # 確認今天市場有開
 
     twii    = fetch_twii()
@@ -1026,7 +1035,7 @@ async def on_ready():
     except Exception as e:
         log.error(f'Slash 同步失敗: {e}')
 
-    # 上線時立刻推送一次 data.json
+    # 上線時立刻推送一次 data.json（若盤中但 TWSE 尚無報價則跳過，等下一個 15 分鐘排程）
     await asyncio.sleep(3)
     await job_push_data(force=True)
 
