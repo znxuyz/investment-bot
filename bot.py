@@ -125,6 +125,7 @@ def fetch_monthly_twse(year, month):
 
 def fetch_historical():
     """用 TWSE 官方 API 抓 0050 歷史日線（不依賴 yfinance）"""
+    import time
     now = datetime.now(TW_TZ)  # 用台灣時區，避免 Railway(UTC) 在月底前8小時取錯月份
     all_data = []
     for i in range(5, -1, -1):
