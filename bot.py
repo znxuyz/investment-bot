@@ -94,33 +94,47 @@ def fetch_twii():
     return None
 
 def fetch_monthly_twse(year, month):
-    """抓 TWSE 單月 0050 收盤資料"""
+    """抓 TWSE 單月 0050 收盤資料；transient 失敗（網路錯誤、5xx）重試 2 次，backoff 0.5s/1s"""
     date_str = f"{year}{month:02d}01"
     url = (f'https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY'
            f'?stockNo=0050&date={date_str}&response=json')
-    try:
-        r = requests.get(url, headers=TWSE_HEADERS, timeout=10)
-        if r.status_code != 200: return []
-        data = r.json()
-        if data.get('stat') != 'OK' or not data.get('data'): return []
-        result = []
-        for row in data['data']:
-            close_str = row[6].replace(',', '')
-            date_str  = row[0]  # 格式: 114/05/01（民國年）
-            if close_str and close_str not in ('--', 'X'):
-                try:
-                    close = float(close_str)
-                    # 民國年轉西元年
-                    parts = date_str.split('/')
-                    if len(parts) == 3:
-                        ad_date = f"{int(parts[0])+1911}/{parts[1]}/{parts[2]}"
-                    else:
-                        ad_date = date_str
-                    result.append({'close': close, 'date': ad_date})
-                except: pass
-        return result
-    except Exception as e:
-        log.warning(f'TWSE 月資料 {year}/{month}: {e}')
+    last_err = None
+    for attempt in range(3):
+        if attempt > 0:
+            time.sleep(0.5 * (2 ** (attempt - 1)))  # 0.5s, 1s
+        try:
+            r = requests.get(url, headers=TWSE_HEADERS, timeout=10)
+            if r.status_code >= 500:
+                last_err = f'HTTP {r.status_code}'
+                continue  # 5xx 重試
+            if r.status_code != 200:
+                return []  # 4xx 永久錯誤，不重試
+            data = r.json()
+            if data.get('stat') != 'OK' or not data.get('data'):
+                return []
+            result = []
+            for row in data['data']:
+                close_str = row[6].replace(',', '')
+                row_date  = row[0]  # 格式: 114/05/01（民國年）
+                if close_str and close_str not in ('--', 'X'):
+                    try:
+                        close = float(close_str)
+                        # 民國年轉西元年
+                        parts = row_date.split('/')
+                        if len(parts) == 3:
+                            ad_date = f"{int(parts[0])+1911}/{parts[1]}/{parts[2]}"
+                        else:
+                            ad_date = row_date
+                        result.append({'close': close, 'date': ad_date})
+                    except: pass
+            return result
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_err = e
+            continue  # 網路錯誤重試
+        except Exception as e:
+            log.warning(f'TWSE 月資料 {year}/{month}: {e}')
+            return []
+    log.warning(f'TWSE 月資料 {year}/{month} 重試 3 次仍失敗: {last_err}')
     return []
 
 def fetch_historical():
@@ -384,6 +398,25 @@ def get_cache():
 # ══════════════════════════════════════════
 #  📤  推送 data.json 到 GitHub
 # ══════════════════════════════════════════
+def load_data_json_from_github():
+    """啟動時撈 GitHub 上既有 data.json，作為 _last_push_data 的初始 fallback。
+    這樣即使本次重啟後第一次 fetch_historical 就失敗，仍能用上次成功推送的資料
+    走 stale 路徑，不會讓網頁卡住整天。"""
+    if not GITHUB_TOKEN:
+        return None
+    try:
+        api_url = (f'https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}'
+                   f'/contents/{DATA_FILE}')
+        headers = {'Authorization': f'token {GITHUB_TOKEN}',
+                   'Accept': 'application/vnd.github.v3+json'}
+        r = requests.get(api_url, headers=headers, timeout=10)
+        if r.status_code == 200:
+            content = base64.b64decode(r.json()['content']).decode('utf-8')
+            return json.loads(content)
+    except Exception as e:
+        log.warning(f'載入既有 data.json: {e}')
+    return None
+
 def push_data_json(data: dict):
     """把資料推送到 GitHub repo 的 data.json"""
     if not GITHUB_TOKEN:
@@ -749,15 +782,50 @@ async def job_push_data(is_close_push=False, force=False):
 
 async def job_daily_report(extra_send=None):
     """每日 09:00 日報。extra_send 可傳入 callback 使結果也回覆給指令觸發者。"""
+    global _last_push_data
     channels = await get_all_channels()
     if not channels and not extra_send: return
 
     cache = get_cache()
     hist  = cache.get('hist')
     if not hist:
-        err = '⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。'
-        for ch in channels: await ch.send(err)
-        if extra_send: await extra_send(err)
+        # TWSE 取資料失敗：用最後一次成功的 _last_push_data 給 fallback
+        if _last_push_data:
+            last = _last_push_data
+            try:
+                last_dt = datetime.fromisoformat(last.get('updated', '')).strftime('%Y/%m/%d %H:%M')
+            except Exception:
+                last_dt = last.get('updated', '--') or '--'
+            e_last  = last.get('etf_0050') or {}
+            tw_last = last.get('twii') or {}
+            lines = [
+                '━━━━━━━━━━━━━━━━━━━━━━━━',
+                '⚠️ **今日 TWSE 取資料失敗** ｜ 改顯示最後一次成功更新',
+                '━━━━━━━━━━━━━━━━━━━━━━━━',
+                f"最後更新：{last_dt}",
+                f"📈 0050：{e_last.get('price', 0):.2f} 元 ({e_last.get('chg', 0):+.2f}%)",
+            ]
+            if tw_last.get('price'):
+                lines.append(f"🇹🇼 大盤：{tw_last.get('price', 0):,.0f} 點 ({tw_last.get('chg', 0):+.2f}%)")
+            lines.extend([
+                f"📉 距近期高點：{e_last.get('drawdown', 0):.2f}%",
+                f"🎯 共振評分：{e_last.get('score', 0)}/100",
+                f"{e_last.get('light', '')} {e_last.get('title', '')}",
+                '稍後請使用 `/check` 重試。網頁已同步標記為延遲。',
+                '━━━━━━━━━━━━━━━━━━━━━━━━',
+            ])
+            msg = '\n'.join(l for l in lines if l)
+            for ch in channels: await ch.send(msg)
+            if extra_send: await extra_send(msg)
+            # 把 stale 版本推回 GitHub，刷新 updated 讓網頁感知到延遲
+            stale = dict(last)
+            stale['stale'] = True
+            stale['updated'] = datetime.now(TW_TZ).isoformat()
+            push_data_json(stale)
+        else:
+            err = '⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。'
+            for ch in channels: await ch.send(err)
+            if extra_send: await extra_send(err)
         return
 
     rt      = fetch_0050_realtime()
@@ -791,7 +859,6 @@ async def job_daily_report(extra_send=None):
         prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
     )
     push_data_json(data)
-    global _last_push_data
     _last_push_data = data  # 確保 fallback 快取有最新資料
 
 async def job_price_check():
@@ -1025,7 +1092,7 @@ async def cmd_help(ctx):
 # ── 啟動 ──
 @bot.event
 async def on_ready():
-    global _initialized
+    global _initialized, _last_push_data
     log.info(f'Bot 上線：{bot.user}')
 
     # on_ready 每次重連都會觸發，用旗標確保初始化只執行一次
@@ -1033,6 +1100,15 @@ async def on_ready():
         log.info('重新連線，跳過重複初始化')
         return
     _initialized = True
+
+    # 啟動時先撈 GitHub 既有 data.json，作為本次啟動的 _last_push_data fallback。
+    # 重啟後若第一次 fetch_historical 失敗，仍能走 stale 路徑而非整天無資料。
+    existing = load_data_json_from_github()
+    if existing:
+        _last_push_data = existing
+        log.info(f"已載入既有 data.json 作為 fallback (updated: {existing.get('updated', '--')})")
+    else:
+        log.info('GitHub 上尚無 data.json 或載入失敗，無 fallback')
 
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
@@ -1085,9 +1161,23 @@ async def on_ready():
     except Exception as e:
         log.error(f'Slash 同步失敗: {e}')
 
-    # 上線時立刻推送一次 data.json（若盤中但 TWSE 尚無報價則跳過，等下一個 5 分鐘排程）
+    # 上線時推送一次 data.json，但**只在排程窗口內**才推：
+    #   平日 09:05–13:30：盤中即時資料
+    #   平日 15:30–15:59：收盤資料窗口
+    # 其他時間（例如夜間、週末重啟）：跳過，避免出現非排程時間的更新時間戳
     await asyncio.sleep(3)
-    await job_push_data(force=True)
+    now_tw = datetime.now(TW_TZ)
+    weekday, hour, minute = now_tw.weekday(), now_tw.hour, now_tw.minute
+    in_intraday = weekday < 5 and (
+        (hour == 9 and minute >= 5) or
+        (10 <= hour <= 12) or
+        (hour == 13 and minute <= 30)
+    )
+    in_close = weekday < 5 and hour == 15 and minute >= 30
+    if in_intraday or in_close:
+        await job_push_data(force=True)
+    else:
+        log.info(f'啟動時間 {now_tw.strftime("%a %H:%M")} 不在排程窗口，跳過 force 推送')
 
     log.info('Bot 初始化完成，開始監控')
 

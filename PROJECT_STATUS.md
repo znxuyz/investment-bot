@@ -219,6 +219,14 @@ HIST_DATA = {
 
 按優先級排序，標註 **影響範圍**。
 
+### ✅ 已修（本批次）
+
+- [x] **`_last_push_data` 重啟即遺失**：on_ready 改為先從 GitHub 撈現有 `data.json` 灌入，重啟後第一次 TWSE 失敗仍有 fallback 可用。`load_data_json_from_github` (`bot.py`)。
+- [x] **`fetch_monthly_twse` 無重試**：加入 2 次 backoff (0.5s/1s) 重試，5xx 與 ConnectionError/Timeout 會重試，4xx 直接返回。
+- [x] **網頁誤標「盤中即時」**：新增 `dataStaleness()`，`updated > 30 分鐘` 或 `stale=true` 時改顯示黃色「資料延遲・X 分/小時/天前」。
+- [x] **啟動 force push 無視排程時間**：on_ready 啟動推送加排程窗口閘門（09:05–13:30 / 15:30–15:59 才推），17:07/夜間/週末重啟不再推送。
+- [x] **日報 hist 失敗時整個 abort**：改為使用 `_last_push_data` 組 fallback 訊息發 Discord，並把 stale 版本推回 GitHub 讓網頁同步刷新狀態。
+
 ### 🔴 高優先（影響功能正確性）
 
 - [ ] **外資 API 失效**：當前 `data.json` 的 `foreign_net = null`，`fetch_foreign_flow` 抓 `TWT38U` 沒成功。需驗證是 TWSE URL 變動、headers 不足、還是 IP 被擋。影響：共振分數固定少 10 分上限。
