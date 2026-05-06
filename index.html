@@ -180,11 +180,18 @@ function signal(light){
 }
 
 // ── 渲染 ──
-// 判斷資料是否過時：bot 主動標 stale，或 updated 距今 > 30 分鐘
+// 判斷資料是否過時：
+//   - bot 主動標 stale 永遠視為過時
+//   - 交易時間內（週一~五 09:00–13:30）資料距今 > 30 分鐘 → 過時
+//   - 任何時間資料距今 > 24 小時 → 過時（避免 Bot 死掉很久卻無人察覺）
+//   - 非交易時間且資料 < 24 小時：視為「上次收盤價」，不標過時（避免 14:00–次日 09:00 誤報黃色）
 function dataStaleness(d){
   const upd = d && d.updated ? new Date(d.updated) : null;
   const ageMin = upd ? Math.max(0, (Date.now() - upd.getTime()) / 60000) : null;
-  const isStale = (d && d.stale === true) || ageMin === null || ageMin > 30;
+  const explicitlyStale     = d && d.stale === true;
+  const tooStaleForMarket   = isMarketHours() && ageMin !== null && ageMin > 30;
+  const tooStaleAbsolute    = ageMin === null || ageMin > 60 * 24;
+  const isStale = explicitlyStale || tooStaleForMarket || tooStaleAbsolute;
   let ageLabel;
   if (ageMin === null)        ageLabel = '時間未知';
   else if (ageMin > 60*24)    ageLabel = `${Math.floor(ageMin/60/24)} 天前`;

@@ -233,6 +233,8 @@ HIST_DATA = {
 - [x] **網頁誤標「盤中即時」**：新增 `dataStaleness()`，`updated > 30 分鐘` 或 `stale=true` 時改顯示黃色「資料延遲・X 分/小時/天前」。
 - [x] **啟動 force push 無視排程時間**：on_ready 啟動推送加排程窗口閘門（09:05–13:30 / 15:30–15:59 才推），17:07/夜間/週末重啟不再推送。
 - [x] **日報 hist 失敗時整個 abort**：改為使用 `_last_push_data` 組 fallback 訊息發 Discord，並把 stale 版本推回 GitHub 讓網頁同步刷新狀態。
+- [x] **TWSE realtime 整個早上壞掉時 cron silent skip**（Fix F）：`job_push_data` 原本在「rt 失效 + `_market_open_today=False`」時走 `else: return` 直接跳過，導致 09:05–13:30 期間每 5 分鐘的 cron 全部沒推、`data.json` 卡在 09:00 的 daily_report fallback。修正為：只要有 `_last_push_data`，不論今天是否確認過開盤都推 stale 並刷新時間戳。
+- [x] **網頁非交易時間誤報「資料延遲」**（Fix G）：原本 `ageMin > 30` 一律標 stale，導致 14:00–15:30（13:30 收盤後到 15:30 close push 之間）會錯誤亮黃燈。修正為：只在「**交易時間內**（週一~五 09:00–13:30）資料 > 30 分鐘」或「資料 > 24 小時」或「`stale=true`」三種情況才標延遲。週末看週五 15:30 收盤、凌晨看昨天 15:30 等情境正確顯示灰色「休市・最後收盤」。
 
 ### 🔴 高優先（影響功能正確性）
 

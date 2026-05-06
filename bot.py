@@ -732,17 +732,21 @@ async def job_push_data(is_close_push=False, force=False):
                     log.info('盤中啟動但 TWSE 尚無即時報價，跳過 force 推送')
                     return
                 # 非盤中時間的 force 推送（例如夜間重啟）繼續執行，但不標記開盤
-            elif _market_open_today and _last_push_data:
-                # 今天已確認開盤，但 TWSE 即時 API 暫時失效（如大漲大跌時伺服器延遲）
-                # → 重推上次快取，讓網頁不斷線，並標記為 stale
+            elif _last_push_data:
+                # 不論今天是否確認過開盤，只要有 fallback 就推 stale 並刷新時間戳。
+                # 解決「TWSE realtime 從早上就壞掉、_market_open_today 永遠 False、
+                # 整個上午每 5 分鐘的 cron 都 silent skip」的情況。
                 stale = dict(_last_push_data)
                 stale['stale'] = True
                 stale['updated'] = datetime.now(TW_TZ).isoformat()
                 push_data_json(stale)
-                log.warning('盤中 TWSE 即時 API 失效（is_open=False），重推上次快取（stale=True）')
+                if _market_open_today:
+                    log.warning('盤中 TWSE 即時 API 失效（is_open=False），重推上次快取（stale=True）')
+                else:
+                    log.warning('TWSE 即時 API 失效且今日尚未確認開盤，重推上次快取（stale=True）')
                 return
             else:
-                return      # 國定假日或尚未確認開盤（今日 is_open 從未為 True）
+                return      # 真的沒有 fallback（首次部署、GitHub data.json 也還沒有）
         else:
             _market_open_today = True  # 確認今天市場有開（is_open=True 才設定）
 
