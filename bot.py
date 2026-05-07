@@ -777,30 +777,32 @@ async def job_push_data(is_close_push=False, force=False):
 
     if not is_close_push:
         if not rt or not rt.get('is_open'):
-            if force:
-                # 啟動時若盤中但 TWSE 尚未播報即時報價（開盤初期），
-                # 跳過推送以免用「最後收盤價（休市中）」覆蓋較新的資料
-                h = datetime.now(TW_TZ).hour
-                m = datetime.now(TW_TZ).minute
-                if h == 9 or (10 <= h <= 12) or (h == 13 and m <= 30):
-                    log.info('盤中啟動但 TWSE 尚無即時報價，跳過 force 推送')
-                    return
-                # 非盤中時間的 force 推送（例如夜間重啟）繼續執行，但不標記開盤
-            elif _last_push_data:
-                # 不論今天是否確認過開盤，只要有 fallback 就推 stale 並刷新時間戳。
-                # 解決「TWSE realtime 從早上就壞掉、_market_open_today 永遠 False、
-                # 整個上午每 5 分鐘的 cron 都 silent skip」的情況。
+            # rt 失效統一處理：有 fallback 就推 stale 刷新時間戳，
+            # 無論 force/cron/manual 觸發都一致行為。
+            if _last_push_data:
                 stale = dict(_last_push_data)
                 stale['stale'] = True
                 stale['updated'] = datetime.now(TW_TZ).isoformat()
                 push_data_json(stale)
-                if _market_open_today:
-                    log.warning('盤中 TWSE 即時 API 失效（is_open=False），重推上次快取（stale=True）')
-                else:
-                    log.warning('TWSE 即時 API 失效且今日尚未確認開盤，重推上次快取（stale=True）')
+                ctx_parts = []
+                if force: ctx_parts.append('force')
+                if _market_open_today: ctx_parts.append('已開盤')
+                else: ctx_parts.append('尚未確認開盤')
+                log.warning(f'TWSE realtime 失效（{",".join(ctx_parts)}），重推上次快取（stale=True）')
                 return
+            # 沒有 fallback（首次部署、GitHub data.json 也還沒有）：
+            #   force 在盤中跳過，避免用「最後收盤價」覆蓋潛在的新資料；
+            #   force 在盤外（夜間 / 收盤後）繼續走完整路徑用 closes[-1] 當價格；
+            #   cron 直接 return。
+            if force:
+                h = datetime.now(TW_TZ).hour
+                m = datetime.now(TW_TZ).minute
+                if h == 9 or (10 <= h <= 12) or (h == 13 and m <= 30):
+                    log.info('盤中 force 推送但無 fallback 且 TWSE 尚無即時報價，跳過')
+                    return
+                # 非盤中：fall through，繼續執行（但不標記 _market_open_today）
             else:
-                return      # 真的沒有 fallback（首次部署、GitHub data.json 也還沒有）
+                return
         else:
             _market_open_today = True  # 確認今天市場有開（is_open=True 才設定）
 
@@ -1067,6 +1069,7 @@ async def _do_help(send):
         '`/取消頻道` — 取消此伺服器的日報和警報',
         '`/report`   — 手動觸發今日完整日報（直接回覆給你）',
         '`/check`    — 快速查看當前 0050 狀況',
+        '`/refresh`  — 手動推送 `data.json`，更新網頁（不發日報）',
         '`/status`   — 查看機器人運作狀態',
         '`/說明`     — 顯示此說明',
         '',
@@ -1075,7 +1078,7 @@ async def _do_help(send):
         '每週一 09:00         — 週報',
         '每 13~17 分鐘         — 靜默偵測（觸發才推播）',
         '每5分鐘（盤中09:05–13:30）/ 15:30（收盤）— 更新網頁資料',
-        '每月1日               — 子彈閒置提醒',
+        '每月第一個平日       — 子彈閒置提醒（≥90 天才發）',
         '',
         '**💡 新伺服器加入後**',
         '先輸入 `/設定頻道` 才會開始收到通知',
@@ -1110,6 +1113,22 @@ async def slash_help(interaction: discord.Interaction):
     await interaction.response.defer()
     await _do_help(interaction.followup.send)
 
+@bot.tree.command(name='refresh', description='手動推送 data.json（更新網頁，不發 Discord 日報）')
+async def slash_refresh(interaction: discord.Interaction):
+    global _cache_date
+    await interaction.response.defer()
+    await interaction.followup.send('⏳ 強制重抓歷史資料 + 即時報價並推送中...')
+    _cache_date = None  # 強制刷新 hist 快取
+    try:
+        await job_push_data(force=True)
+        await interaction.followup.send(
+            '✅ 已嘗試推送 `data.json`。約 5–10 秒後刷新網頁即可看到最新狀態。\n'
+            '若 TWSE 即時 API 失效，網頁會顯示黃色「資料延遲」警告（這是預期行為，不是錯誤）。'
+        )
+    except Exception as e:
+        log.error(f'/refresh 推送失敗: {e}')
+        await interaction.followup.send(f'❌ 推送發生錯誤：`{e}`')
+
 @bot.tree.command(name='status', description='查看機器人運作狀態')
 async def slash_status(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -1142,6 +1161,17 @@ async def cmd_report(ctx):
 @bot.command(name='check')
 async def cmd_check(ctx):
     await _do_check(ctx.send)
+
+@bot.command(name='refresh')
+async def cmd_refresh(ctx):
+    global _cache_date
+    await ctx.send('⏳ 強制重抓資料中...')
+    _cache_date = None
+    try:
+        await job_push_data(force=True)
+        await ctx.send('✅ 已推送，請刷新網頁')
+    except Exception as e:
+        await ctx.send(f'❌ 推送錯誤：{e}')
 
 @bot.command(name='help2')
 async def cmd_help(ctx):
