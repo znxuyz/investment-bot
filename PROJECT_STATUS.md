@@ -210,16 +210,18 @@ else:                                  🟢  正常持有
 
 **關鍵公式**：
 ```
-expected_drop = round(Σcontribs / 2.5)         # 0~25 整數，1% 間隔
-score         = clamp(expected_drop × 4, 1, 99) # 1~99 整數（永遠不 0 或 100）
-drop_low      = max(2, expected_drop − 3)
-drop_high     = max(5, expected_drop + 4)
+expected_drop = round(Σcontribs / 2.5)             # 0~25 整數，1% 間隔
+score         = clamp(expected_drop × 4, 1, 99)    # 1~99 整數（永遠不 0 或 100）
+drop_low      = max(2, round(expected_drop × 0.83)) # 中位數 × 5/6
+drop_high     = max(5, round(expected_drop × 1.25)) # 中位數 × 5/4
 range         = "-{drop_low}%~-{drop_high}%"
 ```
 
 > 例：RSI=77.6 / Bias20=+10% / R30=+29% / Bias60=+20.6% → 貢獻 11.04+7.0+12.0+10.56=40.6 → expected_drop=16 → score=64 → range "-13%~-20%"。
 >
 > **score 限制在 [1, 99]** 的設計理由：完全無訊號時市場仍有基本不確定性，給 1 而非 0；指標全部破表時實務上也不會「鐵定回檔」，給 99 而非 100，避免使用者誤以為機率學意義上的絕對。
+>
+> **範圍寬度等比例縮放、且重疊**：低 expected_drop 區間窄（高信心，例：3 → `-2%~-5%`、5 → `-4%~-6%`）、高 expected_drop 區間寬（高不確定性，例：20 → `-17%~-25%`、25 → `-21%~-31%`）。相鄰 expected_drop 的範圍會互相重疊（如 12 → `-10%~-15%`、16 → `-13%~-20%`，重疊區 `-13%~-15%`），符合「指標差一點、實際回檔幅度仍可能落在類似區段」的統計直觀。
 
 過熱等級門檻：`>=70 高 🔴`、`>=45 中 🟡`、`>=20 低 🟢`、其餘極低 🟢。
 

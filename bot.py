@@ -292,8 +292,15 @@ def predict_correction(closes, ind):
 
     expected_drop = round(Σcontribs / 2.5)，0~25
     score         = clamp(expected_drop × 4, 1, 99)（1% 間隔，永遠不會 0 或 100）
-    drop_low      = max(2, expected_drop − 3)   # 預測區間下緣
-    drop_high     = max(5, expected_drop + 4)   # 預測區間上緣
+    drop_low      = max(2, round(expected_drop × 0.83))   # 區間下緣，預期 × 5/6
+    drop_high     = max(5, round(expected_drop × 1.25))   # 區間上緣，預期 × 5/4
+
+    區間寬度隨 expected_drop 等比例增加（小幅預測較窄、高信心；大幅預測較寬、高不確定性），
+    相鄰 expected_drop 的範圍會互相重疊：
+        expected_drop=10 → -8%~-13%
+        expected_drop=12 → -10%~-15%   ← 重疊區 -10%~-13%
+        expected_drop=14 → -12%~-18%   ← 與上面重疊區 -12%~-15%
+        expected_drop=16 → -13%~-20%   ← 與上面重疊區 -13%~-18%
 
     每個有貢獻的因子會在 signals 裡帶上「+X.X%」標示，使用者能直接看到誰貢獻多少。
     """
@@ -321,8 +328,9 @@ def predict_correction(closes, ind):
     # 機率限制在 1~99：完全沒有訊號也給 1（永遠不可能 0，市場本來就有不確定性）
     # 因子全部破表也封頂 99（永遠不可能 100，避免「鐵定回檔」的誤導）
     score    = max(1, min(expected_drop * 4, 99))
-    drop_low = max(2, expected_drop - 3)
-    drop_high = max(5, expected_drop + 4)
+    # 等比例範圍：寬度隨 expected_drop 增長，相鄰 expected_drop 的範圍會重疊
+    drop_low = max(2, round(expected_drop * 0.83))
+    drop_high = max(5, round(expected_drop * 1.25))
     range_str = f'-{drop_low}%~-{drop_high}%'
 
     signals = []
