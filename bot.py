@@ -291,7 +291,7 @@ def predict_correction(closes, ind):
       連漲天數       近 10 日上漲   5 (天)     1.50    9/10 → +6%
 
     expected_drop = round(Σcontribs / 2.5)，0~25
-    score         = expected_drop × 4，0~100（1% 間隔，方便 UI 顯示）
+    score         = clamp(expected_drop × 4, 1, 99)（1% 間隔，永遠不會 0 或 100）
     drop_low      = max(2, expected_drop − 3)   # 預測區間下緣
     drop_high     = max(5, expected_drop + 4)   # 預測區間上緣
 
@@ -318,7 +318,9 @@ def predict_correction(closes, ind):
     contribs = [(n, v, max(0.0, v - thr) * coef) for n, v, thr, coef in factors]
 
     expected_drop = max(0, min(round(sum(c[2] for c in contribs) / 2.5), 25))
-    score    = max(0, min(expected_drop * 4, 100))
+    # 機率限制在 1~99：完全沒有訊號也給 1（永遠不可能 0，市場本來就有不確定性）
+    # 因子全部破表也封頂 99（永遠不可能 100，避免「鐵定回檔」的誤導）
+    score    = max(1, min(expected_drop * 4, 99))
     drop_low = max(2, expected_drop - 3)
     drop_high = max(5, expected_drop + 4)
     range_str = f'-{drop_low}%~-{drop_high}%'
