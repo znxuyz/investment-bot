@@ -23,7 +23,6 @@ import numpy as np
 import discord
 from discord.ext import commands
 from datetime import datetime, date
-from dateutil.relativedelta import relativedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # ══════════════════════════════════════════
@@ -278,32 +277,83 @@ def historical_prob(drawdown):
     return None
 
 def predict_correction(closes, ind):
+    """近期回檔機率預測（1% 間隔的線性貢獻模型）。
+
+    每個過熱因子用 `max(0, 觀測值 − 啟動門檻) × 係數` 算出該因子的「預期回檔貢獻 %」，
+    全部加總後 / 2.5 normalize 為預期回檔幅度（0~25%，1% 間隔）：
+
+      因子           觀測值           啟動門檻   係數    上限例
+      ───────        ───────         ────────  ─────   ──────
+      RSI 過熱       RSI            50         0.40    RSI 75 → +10%
+      20 日乖離      bias20         3 (%)      1.00    +10% bias → +10%
+      30 日漲幅      r30            5 (%)      0.50    +25% 漲 → +10%
+      60 日乖離      bias60         3 (%)      0.60    +15% bias → +7.2%
+      連漲天數       近 10 日上漲   5 (天)     1.50    9/10 → +6%
+
+    expected_drop = round(Σcontribs / 2.5)，0~25
+    score         = expected_drop × 4，0~100（1% 間隔，方便 UI 顯示）
+    drop_low      = max(2, expected_drop − 3)   # 預測區間下緣
+    drop_high     = max(5, expected_drop + 4)   # 預測區間上緣
+
+    每個有貢獻的因子會在 signals 裡帶上「+X.X%」標示，使用者能直接看到誰貢獻多少。
+    """
     rsi, b20, b60 = ind['rsi'], ind['bias20'], ind['bias60']
-    score, signals = 0, []
     price = closes[-1]
-    if rsi>75:   score+=25; signals.append(f'RSI {rsi:.1f} 嚴重過熱')
-    elif rsi>70: score+=15; signals.append(f'RSI {rsi:.1f} 過熱')
-    elif rsi>65: score+=8;  signals.append(f'RSI {rsi:.1f} 偏熱')
-    if b20>8:    score+=20; signals.append(f'乖離率 +{b20:.1f}% 嚴重偏高')
-    elif b20>5:  score+=13; signals.append(f'乖離率 +{b20:.1f}% 偏高')
-    elif b20>3:  score+=6;  signals.append(f'乖離率 +{b20:.1f}% 略偏高')
-    if len(closes)>=30:
-        r30 = (price-closes[-30])/closes[-30]*100
-        if r30>20:   score+=20; signals.append(f'近30日漲 +{r30:.1f}% 過大')
-        elif r30>12: score+=12; signals.append(f'近30日漲 +{r30:.1f}% 偏大')
-        elif r30>7:  score+=5;  signals.append(f'近30日漲 +{r30:.1f}%')
-    if b60>10:   score+=15; signals.append(f'60日乖離 +{b60:.1f}% 嚴重過高')
-    elif b60>6:  score+=8;  signals.append(f'60日乖離 +{b60:.1f}% 偏高')
-    if len(closes)>=10:
-        rec=closes[-10:]; up=sum(1 for i in range(1,len(rec)) if rec[i]>rec[i-1])
-        if up>=8:   score+=15; signals.append(f'近10日{up}天連漲過度')
-        elif up>=6: score+=7;  signals.append(f'近10日{up}天上漲')
-    score = int(min(score,100))
-    if score>=70:   lv,em,rng,adv='高','🔴','-12%~-20%','子彈備妥，等真實觸發立刻行動'
-    elif score>=45: lv,em,rng,adv='中','🟡','-8%~-15%','留意回檔訊號，子彈先別動'
-    elif score>=20: lv,em,rng,adv='低','🟢','-5%~-10%','市場尚穩，繼續定額即可'
-    else:           lv,em,rng,adv='極低','🟢','-3%~-7%','無明顯回測疑慮，正常持有'
-    return {'score':score,'signals':signals,'range':rng,'level':lv,'emoji':em,'advice':adv}
+
+    r30 = ((price - closes[-30]) / closes[-30] * 100) if len(closes) >= 30 else 0.0
+    if len(closes) >= 10:
+        rec = closes[-10:]
+        up_days = sum(1 for i in range(1, len(rec)) if rec[i] > rec[i-1])
+    else:
+        up_days = 0
+
+    # (名稱, 觀測值, 啟動門檻, 係數)
+    factors = [
+        ('rsi',     rsi,      50.0, 0.40),
+        ('bias20',  b20,       3.0, 1.00),
+        ('r30',     r30,       5.0, 0.50),
+        ('bias60',  b60,       3.0, 0.60),
+        ('streak',  up_days,   5.0, 1.50),
+    ]
+    contribs = [(n, v, max(0.0, v - thr) * coef) for n, v, thr, coef in factors]
+
+    expected_drop = max(0, min(round(sum(c[2] for c in contribs) / 2.5), 25))
+    score    = max(0, min(expected_drop * 4, 100))
+    drop_low = max(2, expected_drop - 3)
+    drop_high = max(5, expected_drop + 4)
+    range_str = f'-{drop_low}%~-{drop_high}%'
+
+    signals = []
+    for name, val, contrib in contribs:
+        if contrib < 1.0:  # 貢獻不足 1% 不列
+            continue
+        c = round(contrib, 1)
+        if name == 'rsi':
+            desc = '嚴重過熱' if val > 75 else ('過熱' if val > 70 else ('偏熱' if val > 65 else '偏高'))
+            signals.append(f'RSI {val:.1f} {desc} (+{c:.1f}%)')
+        elif name == 'bias20':
+            desc = '嚴重偏高' if val > 8 else ('偏高' if val > 5 else '略偏高')
+            signals.append(f'乖離率 +{val:.1f}% {desc} (+{c:.1f}%)')
+        elif name == 'r30':
+            desc = '過大' if val > 20 else ('偏大' if val > 12 else '偏多')
+            signals.append(f'近30日漲 +{val:.1f}% {desc} (+{c:.1f}%)')
+        elif name == 'bias60':
+            desc = '嚴重過高' if val > 10 else ('偏高' if val > 6 else '略偏高')
+            signals.append(f'60日乖離 +{val:.1f}% {desc} (+{c:.1f}%)')
+        elif name == 'streak':
+            signals.append(f'近10日{int(val)}天上漲 (+{c:.1f}%)')
+
+    if score >= 70:   lv, em, adv = '高',   '🔴', '子彈備妥，等真實觸發立刻行動'
+    elif score >= 45: lv, em, adv = '中',   '🟡', '留意回檔訊號，子彈先別動'
+    elif score >= 20: lv, em, adv = '低',   '🟢', '市場尚穩，繼續定額即可'
+    else:             lv, em, adv = '極低', '🟢', '無明顯回測疑慮，正常持有'
+
+    return {
+        'score': score, 'signals': signals, 'range': range_str,
+        'level': lv, 'emoji': em, 'advice': adv,
+        'expected_drop': expected_drop,
+        'drop_low': drop_low, 'drop_high': drop_high,
+    }
 
 # ══════════════════════════════════════════
 #  💰  子彈閒置
@@ -370,13 +420,15 @@ def save_last_trigger(trigger_date=None):
         log.warning(f'寫入 last_trigger.json: {e}')
 
 def bullet_idle_status():
+    """子彈閒置狀態（單位：天）。
+    門檻：≥365 天 → 投 80%；≥180 天 → 投 50%；其餘繼續等。
+    """
     last = load_last_trigger()
-    diff = relativedelta(date.today(), last)
-    months = diff.years * 12 + diff.months
-    if months>=12: em,adv='⚠️','市場長期無大回檔，建議投入子彈的 **80%**'
-    elif months>=6: em,adv='⏰','建議投入子彈的 **50%**，剩餘繼續等門檻'
-    else: em,adv='🟢','繼續等待，保留子彈'
-    return months, em, adv, last
+    days = max(0, (date.today() - last).days)
+    if days >= 365:   em, adv = '⚠️', '市場長期無大回檔，建議投入子彈的 **80%**'
+    elif days >= 180: em, adv = '⏰', '建議投入子彈的 **50%**，剩餘繼續等門檻'
+    else:             em, adv = '🟢', '繼續等待，保留子彈'
+    return days, em, adv, last
 
 # ══════════════════════════════════════════
 #  📦  資料快取
@@ -457,7 +509,7 @@ def push_data_json(data: dict):
 
 def build_data_json(rt, twii, hist_data, foreign_net, ind,
                      drawdown, score, signals, light, title, action,
-                     prob, pred, idle_months, idle_emoji, idle_advice, last_trigger):
+                     prob, pred, idle_days, idle_emoji, idle_advice, last_trigger):
     """組合 data.json 的完整資料結構"""
     return {
         'updated': datetime.now(TW_TZ).isoformat(),
@@ -480,7 +532,7 @@ def build_data_json(rt, twii, hist_data, foreign_net, ind,
 
         'foreign_net': foreign_net,
         'idle': {
-            'months': idle_months,
+            'days': idle_days,
             'emoji':  idle_emoji,
             'advice': idle_advice,
             'last_date': str(last_trigger),
@@ -492,7 +544,7 @@ def build_data_json(rt, twii, hist_data, foreign_net, ind,
 # ══════════════════════════════════════════
 
 def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
-              prob, pred, foreign_net, idle_months, idle_emoji, idle_advice, now):
+              prob, pred, foreign_net, idle_days, idle_emoji, idle_advice, now):
     price = rt['price'] if rt else 0
     chg   = rt['chg']   if rt else 0
     label = rt['label'] if rt else '--'
@@ -534,7 +586,7 @@ def fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
         f"    建議：{pred['advice']}",
         *([f"    依據：" + ' ｜ '.join(pred['signals'])] if pred['signals'] else ['    依據：目前無過熱訊號']),
         '',
-        f"**💰 子彈閒置**｜{idle_emoji} {idle_months}個月無觸發｜{idle_advice}",
+        f"**💰 子彈閒置**｜{idle_emoji} {idle_days} 天未觸發｜{idle_advice}",
         '━━━━━━━━━━━━━━━━━━━━━━━━',
     ]
     return '\n'.join(l for l in lines if l is not None)
@@ -762,12 +814,12 @@ async def job_push_data(is_close_push=False, force=False):
     light, title, action = get_signal(drawdown, score)
     prob = historical_prob(drawdown)
     pred = predict_correction(closes, ind)
-    idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
+    idle_days, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
 
     data = build_data_json(
         rt, twii, hist, foreign, ind,
         drawdown, score, signals, light, title, action,
-        prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
+        prob, pred, idle_days, idle_emoji, idle_advice, last_trigger
     )
     push_data_json(data)
     _last_push_data = data  # 儲存成功資料，供下次 API 失敗時 fallback
@@ -845,11 +897,11 @@ async def job_daily_report(extra_send=None):
     light, title, action = get_signal(drawdown, score)
     prob = historical_prob(drawdown)
     pred = predict_correction(closes, ind)
-    idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
+    idle_days, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
     now  = datetime.now(TW_TZ)
 
     msg = fmt_daily(rt, twii, ind, drawdown, score, signals, light, title, action,
-                    prob, pred, foreign, idle_months, idle_emoji, idle_advice, now)
+                    prob, pred, foreign, idle_days, idle_emoji, idle_advice, now)
     for ch in channels:
         await ch.send(msg)
         log.info(f'日報發送至 {ch.guild.name}')
@@ -860,7 +912,7 @@ async def job_daily_report(extra_send=None):
     data = build_data_json(
         rt, twii, hist, foreign, ind,
         drawdown, score, signals, light, title, action,
-        prob, pred, idle_months, idle_emoji, idle_advice, last_trigger
+        prob, pred, idle_days, idle_emoji, idle_advice, last_trigger
     )
     push_data_json(data)
     _last_push_data = data  # 確保 fallback 快取有最新資料
@@ -950,14 +1002,14 @@ async def job_monthly_idle():
     channels = await get_all_channels()
     if not channels: return
 
-    idle_months, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
-    if idle_months < 3: return
+    idle_days, idle_emoji, idle_advice, last_trigger = bullet_idle_status()
+    if idle_days < 90: return  # 不到 90 天不發提醒（原本「3 個月」）
 
     msg = '\n'.join([
         '━━━━━━━━━━━━━━━━━━━━━━━━',
         f"{idle_emoji} **子彈閒置提醒** ｜ {date.today().strftime('%Y/%m/%d')}",
         '━━━━━━━━━━━━━━━━━━━━━━━━',
-        f"距上次觸發加碼門檻：**{idle_months} 個月**",
+        f"距上次觸發加碼門檻：**{idle_days} 天**",
         f"（上次觸發：{last_trigger.strftime('%Y/%m/%d')}）",
         '',
         idle_advice,

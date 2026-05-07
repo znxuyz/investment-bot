@@ -220,9 +220,19 @@ function render(d){
   const ddColor = dd<=-20?'var(--red)':dd<=-8?'var(--yellow)':'var(--green)';
   const scColor = e.score>=70?'var(--red)':e.score>=45?'var(--yellow)':'var(--green)';
   const circ = 2*Math.PI*32;
-  const idle = d.idle||{months:0,emoji:'🟢',advice:'繼續等待，保留子彈',last_date:'--'};
+  // 相容舊資料：若 GitHub 上的 data.json 還是舊格式（months）就直接乘 30 估算成天
+  const _rawIdle = d.idle || {};
+  const idleDays = (_rawIdle.days != null) ? _rawIdle.days
+                 : (_rawIdle.months != null) ? _rawIdle.months * 30
+                 : 0;
+  const idle = {
+    days: idleDays,
+    emoji: _rawIdle.emoji || '🟢',
+    advice: _rawIdle.advice || '繼續等待，保留子彈',
+    last_date: _rawIdle.last_date || '--',
+  };
   const prob = e.hist_prob;
-  const pred = e.pred||{score:0,emoji:'🟢',level:'極低',range:'--',advice:'--',signals:[]};
+  const pred = Object.assign({score:0,emoji:'🟢',level:'極低',range:'--',advice:'--',signals:[],expected_drop:null,drop_low:null,drop_high:null}, e.pred||{});
 
   const bullets = [
     {range:'正常 ~ -5%', action:'留著累積，不追高',        pct:null,  active:dd>-5},
@@ -233,8 +243,9 @@ function render(d){
   ];
   const ptc={'30%':'var(--yellow)','70%':'var(--gold)','100%':'var(--red)'};
 
-  const idleBar = Math.min(idle.months/12*100,100);
-  const idleColor = idle.months>=12?'var(--red)':idle.months>=6?'var(--yellow)':'var(--green)';
+  // 進度條以 365 天為 100%，門檻 ≥365 紅、≥180 黃，其他綠
+  const idleBar = Math.min(idle.days/365*100, 100);
+  const idleColor = idle.days >= 365 ? 'var(--red)' : idle.days >= 180 ? 'var(--yellow)' : 'var(--green)';
 
   document.getElementById('main').innerHTML = `
     <div class="datasrc">資料由 Bot 於 ${d.updated?new Date(d.updated).toLocaleString('zh-TW',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'--'} 更新</div>
@@ -329,11 +340,11 @@ function render(d){
         </div>
         <div style="flex:1;min-width:150px">
           <div style="font-size:13px;font-weight:700;margin-bottom:4px">機率等級：<span style="color:${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'}">${pred.level}</span></div>
-          <div style="font-size:13px;margin-bottom:8px">可能幅度：<span style="font-family:var(--mono);font-weight:700">${pred.range}</span></div>
+          <div style="font-size:13px;margin-bottom:4px">可能幅度：<span style="font-family:var(--mono);font-weight:700">${pred.range}</span>${pred.expected_drop!=null?` <span style="color:var(--muted);font-size:11px">（中位數 -${pred.expected_drop}%）</span>`:''}</div>
           <div style="font-size:12px;color:var(--muted);padding:8px 10px;border-radius:6px;border-left:3px solid ${pred.score>=70?'var(--red)':pred.score>=45?'var(--yellow)':'var(--green)'};background:rgba(255,255,255,0.03)">${pred.advice}</div>
         </div>
       </div>
-      <div style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)">評估依據</div>
+      <div style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:7px;font-family:var(--mono)">評估依據（每項 +X% 為對預期回檔的貢獻）</div>
       ${pred.signals?.length?pred.signals.map(s=>`<span class="stag">${s}</span>`).join(''):'<span style="color:var(--muted);font-size:12px">目前無過熱訊號，市場相對健康</span>'}
       <div style="margin-top:10px;font-size:11px;color:var(--muted);line-height:1.7;padding-top:8px;border-top:1px solid var(--border)">
         ⚠️ 統計機率，不保證一定發生。回檔機率高代表應備妥子彈，仍需等真實觸發門檻（-8%/-15%/-20%）才行動。
@@ -364,14 +375,14 @@ function render(d){
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px">
         <div style="font-size:30px">${idle.emoji}</div>
         <div>
-          <div style="font-size:14px;font-weight:700">${idle.months} 個月未觸發加碼門檻</div>
+          <div style="font-size:14px;font-weight:700">${idle.days} 天未觸發加碼門檻</div>
           <div style="font-size:12px;color:var(--muted);margin-top:3px">上次觸發：${idle.last_date||'--'}</div>
         </div>
       </div>
       <div class="itrack"><div style="height:100%;border-radius:4px;background:${idleColor};width:${idleBar}%"></div></div>
       <div style="font-size:11px;color:var(--muted);margin-bottom:10px;font-family:var(--mono)">
-        ${idle.months>=12?'12+':idle.months}/12 個月
-        ${idle.months>=6?`<span style="margin-left:8px;color:${idle.months>=12?'var(--red)':'var(--yellow)'}">▲ 建議行動</span>`:''}
+        ${idle.days>=365?'365+':idle.days}/365 天
+        ${idle.days>=180?`<span style="margin-left:8px;color:${idle.days>=365?'var(--red)':'var(--yellow)'}">▲ 建議行動</span>`:''}
       </div>
       <div style="font-size:13px;padding:10px;border-radius:8px;border-left:3px solid ${idleColor};background:rgba(255,255,255,0.03)">
         ${idle.advice}
