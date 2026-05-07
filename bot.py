@@ -4,7 +4,7 @@
   • 每日 09:00 自動日報
   • 每 13~17 分鐘靜默偵測，觸發才推播
   • 每週一週報
-  • 每月1日子彈閒置提醒
+  • 每月第一個平日 子彈閒置提醒（≥90 天才發）
   • 盤中每5分鐘（09:05–13:30）/ 收盤後15:30 推送 data.json 到 GitHub（供網頁使用）
   • 多伺服器支援，/斜線指令
 """
@@ -1208,7 +1208,7 @@ async def on_ready():
 
     scheduler.add_job(job_daily_report,  'cron', hour=9,  minute=0, day_of_week='mon-fri')
     scheduler.add_job(job_weekly_report, 'cron', hour=9,  minute=0, day_of_week='mon')
-    # 月度子彈閒置提醒：每月 1 號發；若 1 號為週末，順延到下個平日（內部 gate 控制）
+    # 月度子彈閒置提醒：每月第一個平日發（≥90 天才實際送訊息，內部 gate 控制週末順延）
     scheduler.add_job(job_monthly_idle,  'cron', hour=9,  minute=0,
                       day='1-3', day_of_week='mon-fri', id='monthly_idle')
     # 盤中每 5 分鐘更新網頁資料：09:05–12:55（每 5 分鐘）+ 13:05–13:30（市場 13:30 收盤，之後不再推）
