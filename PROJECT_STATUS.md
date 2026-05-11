@@ -21,7 +21,7 @@ Discord Bot 的全部邏輯，包含 7 個區塊：
 | 評分與燈號 | 252–306 | `convergence_score` 共振評分、`get_signal` 三層燈號、`historical_prob` 查歷史回檔表、`predict_correction` 過熱預測 |
 | 子彈閒置 | 311–379 | `load_last_trigger` / `save_last_trigger` 同步 GitHub `last_trigger.json`、`bullet_idle_status` 計算閒置月數 |
 | 資料快取 | 387–396 | `get_cache` 當日 `closes` 序列；換日或前次失敗時重抓 |
-| 資料推送 | 401–488 | **`load_data_json_from_github`（啟動時從 GitHub 撈既有 data.json 當 fallback）**、`push_data_json` PUT 到 GitHub Contents API、`build_data_json` 組裝給網頁吃的 JSON |
+| 資料推送 | 401–488 | **`load_data_json_from_github`（啟動時從 GitHub 摹既有 data.json 當 fallback）**、`push_data_json` PUT 到 GitHub Contents API、`build_data_json` 組裝給網頁吃的 JSON |
 | Discord 介面 | 494–1090 | `fmt_daily` / `fmt_alert` / `fmt_weekly` / `fmt_close_summary` 4 種訊息模板、Slash 指令、傳統 `!` 指令、頻道管理（`job_daily_report` 加上 hist 失敗 fallback：以 `_last_push_data` 推 stale + 發 Discord 延遲訊息）|
 | 排程啟動 | 1093–1184 | `on_ready` 註冊 **6 個 cron job**（`daily_report` / `weekly_report` / `monthly_idle` / `push_interval_am` / `push_interval_pm` / `push_close`）+ `market_hour_check` 自訂 loop；啟動時先 `load_data_json_from_github` 預載 fallback，再依排程窗口（09:05–13:30 / 15:30–15:59）決定是否 force push |
 
@@ -32,7 +32,7 @@ Discord Bot 的全部邏輯，包含 7 個區塊：
 純前端單頁，**無後端、無框架**，每 5 分鐘 `fetch('data.json?t=' + Date.now())` 抓 GitHub 上的 `data.json` 渲染。
 
 - **CSS（行 7–137）**：CSS Grid + 自訂屬性（`--gold/--green/--red/--yellow`），暗色背景 + 格線浮水印，響應式斷點 500px。
-- **`dataStaleness(d)`（行 184–194，新增）**：依 `data.updated` 計算過時程度。`updated > 30 分鐘` 或 `data.stale === true` 即視為過時，回傳 `{isStale, ageMin, ageLabel}`，標籤格式自動分為 `X 分鐘前 / X 小時前 / X 天前 / 時間未知`。
+- **`dataStaleness(d)`（行 184–199，新增）**：依 `data.updated` 計算過時程度。**10 分鐘 grace**：時間戳在 10 分鐘內一律視為新鮮（與 5 分鐘排程一致），不警告；超過 10 分鐘才看「在交易時間 / `stale=true` / >24 小時」三條件判斷是否警告。回傳 `{isStale, ageMin, ageLabel}`。
 - **`render(d)` 函式（行 196–402）**：6 個區塊渲染：
   1. 主燈號卡（價格、回檔進度條、共振評分圓環）
   2. 技術指標（RSI / Bias20 / Bias60 / MA20 / MA60 / MACD）
@@ -221,7 +221,7 @@ range         = "-{drop_low}%~-{drop_high}%"
 >
 > **score 限制在 [1, 99]** 的設計理由：完全無訊號時市場仍有基本不確定性，給 1 而非 0；指標全部破表時實務上也不會「鐵定回檔」，給 99 而非 100，避免使用者誤以為機率學意義上的絕對。
 >
-> **範圍寬度等比例縮放、且重疊**：低 expected_drop 區間窄（高信心，例：3 → `-2%~-5%`、5 → `-4%~-6%`）、高 expected_drop 區間寬（高不確定性，例：20 → `-17%~-25%`、25 → `-21%~-31%`）。相鄰 expected_drop 的範圍會互相重疊（如 12 → `-10%~-15%`、16 → `-13%~-20%`，重疊區 `-13%~-15%`），符合「指標差一點、實際回檔幅度仍可能落在類似區段」的統計直觀。
+> **範圍寬度等比例縮放、且重疊**：低 expected_drop 區間窤（高信心，例：3 → `-2%~-5%`、5 → `-4%~-6%`）、高 expected_drop 區間寬（高不確定性，例：20 → `-17%~-25%`、25 → `-21%~-31%`）。相鄰 expected_drop 的範圍會互相重疊（如20 → `-17%~-25%`、16 → `-13%~-20%`，重疊區 `-17%~-20%`），符合「指標差一點、實際回檔幅度仍可能落在類似區段」的統計直觀。
 
 過熱等級門檻：`>=70 高 🔴`、`>=45 中 🟡`、`>=20 低 🟢`、其餘極低 🟢。
 
@@ -248,13 +248,14 @@ HIST_DATA = {
 
 ### ✅ 已修（本批次）
 
-- [x] **`_last_push_data` 重啟即遺失**：on_ready 改為先從 GitHub 撈現有 `data.json` 灌入，重啟後第一次 TWSE 失敗仍有 fallback 可用。`load_data_json_from_github` (`bot.py`)。
+- [x] **`_last_push_data` 重啟即遺失**：on_ready 改為先從 GitHub 摹現有 `data.json` 灌入，重啟後第一次 TWSE 失敗仍有 fallback 可用。`load_data_json_from_github` (`bot.py`)。
 - [x] **`fetch_monthly_twse` 無重試**：加入 2 次 backoff (0.5s/1s) 重試，5xx 與 ConnectionError/Timeout 會重試，4xx 直接返回。
 - [x] **網頁誤標「盤中即時」**：新增 `dataStaleness()`，`updated > 30 分鐘` 或 `stale=true` 時改顯示黃色「資料延遲・X 分/小時/天前」。
-- [x] **啟動 force push 無視排程時間**：on_ready 啟動推送加排程窗口閘門（09:05–13:30 / 15:30–15:59 才推），17:07/夜間/週末重啟不再推送。
+- [x] **啟動 force push 無視排程時間**：on_ready 啟動推送加排程窗口闘門（09:05–13:30 / 15:30–15:59 才推），17:07/夜間/週末重啟不再推送。
 - [x] **日報 hist 失敗時整個 abort**：改為使用 `_last_push_data` 組 fallback 訊息發 Discord，並把 stale 版本推回 GitHub 讓網頁同步刷新狀態。
 - [x] **TWSE realtime 整個早上壞掉時 cron silent skip**（Fix F）：`job_push_data` 原本在「rt 失效 + `_market_open_today=False`」時走 `else: return` 直接跳過，導致 09:05–13:30 期間每 5 分鐘的 cron 全部沒推、`data.json` 卡在 09:00 的 daily_report fallback。修正為：只要有 `_last_push_data`，不論今天是否確認過開盤都推 stale 並刷新時間戳。
 - [x] **網頁非交易時間誤報「資料延遲」**（Fix G）：原本 `ageMin > 30` 一律標 stale，導致 14:00–15:30（13:30 收盤後到 15:30 close push 之間）會錯誤亮黃燈。修正為：只在「**交易時間內**（週一~五 09:00–13:30）資料 > 30 分鐘」或「資料 > 24 小時」或「`stale=true`」三種情況才標延遲。週末看週五 15:30 收盤、凌晨看昨天 15:30 等情境正確顯示灰色「休市・最後收盤」。
+- [x] **`stale=true` 但時間戳剛刷新還是亮黃**：原本只要 `data.stale === true` 就亮黃，導致 Bot 每 5 分鐘推一次 stale 也每次都亮黃，使用者誤以為東西壞了。改為 **10 分鐘 grace**：時間戳 ≤10 分鐘一律視為新鮮，不警告（與 5 分鐘排程一致）；>10 分鐘才看「交易時間 / `stale=true` / >24 小時」判定。Bot 剛推完就看的場景現在會顯示綠燈而非黃色警告。
 - [x] **`predict_correction` 改成 1% 間隔線性貢獻模型**：原本是 `score>=70 → -12%~-20%` 這種 4 檔粗略區間，無法區分「RSI 70」與「RSI 90」的差別。改為每個因子用 `max(0, val − threshold) × coef` 算出 1% 整數的回檔貢獻，加總 / 2.5 normalize 為 expected_drop（0~25%），score = expected_drop × 4，range = expected_drop ± 3~4。`signals` 末尾每項加上 `(+X.X%)` 標示因子貢獻量。新增 `pred.expected_drop / drop_low / drop_high` 三個欄位給網頁顯示中位數預測。
 - [x] **子彈閒置單位改為天**：`bullet_idle_status` 從 `relativedelta` 月差改成 `(today − last).days`，門檻從 6/12 個月改為 180/365 天，月度提醒從「3 個月以上」改為「90 天以上」。data.json 的 `idle.months` 改為 `idle.days`；網頁進度條以 365 天為 100%、180 天黃 / 365 天紅。網頁端保留向後相容（舊 `months` × 30 估算成天）。
 
@@ -263,7 +264,7 @@ HIST_DATA = {
 - [ ] **外資 API 失效**：當前 `data.json` 的 `foreign_net = null`，`fetch_foreign_flow` 抓 `TWT38U` 沒成功。需驗證是 TWSE URL 變動、headers 不足、還是 IP 被擋。影響：共振分數固定少 10 分上限。
 - [ ] **HIST_DATA 永遠不更新**：歷史回檔次數寫死在 `bot.py:246`，不會隨真實新事件累加。需要：（a）長期持久化新觸發事件、（b）排程每年重新統計。
 - [ ] **`get_cache` 一天只刷一次歷史**：`_cache_date` 比對日期，整個交易日 `closes` 不會變。但盤中 `job_push_data` 拿不到當日盤中價來計算 MA/RSI（用前一日收盤序列 + 即時價拼湊）。確認 `calc_all` 的輸入是否符合預期。
-- [ ] **`adjust_high_for_price` 不寫入快取**：突破新高的當下，下一個 5 分鐘排程仍用舊 high60 重新計算 drawdown，看起來會「跳動」。考慮把臨時新高寫回 `_cache`。
+- [ ] **`adjust_high_for_price` 不寫入快取**：突破新高的當下，下個 5 分鐘排程仍用舊 high60 重新計算 drawdown，看起來會「跳動」。考慮把臨時新高寫回 `_cache`。
 
 ### 🟡 中優先（穩定性與維護性）
 
@@ -295,7 +296,7 @@ HIST_DATA = {
 
 - 主程式入口：`bot.py:1184-1185`（`if __name__ == '__main__': bot.run(BOT_TOKEN)`）
 - 排程註冊：`bot.py:1113-1126`（6 個 cron job）
-- 啟動 force push 排程閘門：`bot.py:1168-1180`
+- 啟動 force push 排程闘門：`bot.py:1168-1180`
 - 燈號決策：`bot.py:266-271`
 - 共振評分：`bot.py:252-264`
 - 過熱預測：`bot.py:280-306`
@@ -303,4 +304,4 @@ HIST_DATA = {
 - TWSE 月資料重試：`bot.py:96-138`
 - GitHub data.json 預載：`bot.py:401-418`
 - 網頁過時偵測：`index.html:184-194`
-- 網頁渲染主體：`index.html:196-403`
+- 網頁渲染主體：`index.html:196-402`
