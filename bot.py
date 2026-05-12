@@ -1278,4 +1278,26 @@ async def on_ready():
     log.info('Bot 初始化完成，開始監控')
 
 if __name__ == '__main__':
-    bot.run(BOT_TOKEN)
+    async def run_with_retry():
+        """攔截 Discord 登入 429 (Cloudflare error 1015，IP rate-limit)。
+        若退出 process，Railway 會自動重啟並再次呼叫 login，反而把 rate limit 計時器歸零。
+        改為 Bot 保持活著、指數退避重試，給 Cloudflare 冷靜時間自動解除。
+        """
+        backoff = 60                # 起 1 分鐘
+        max_backoff = 30 * 60       # 上限 30 分鐘
+        while True:
+            try:
+                await bot.start(BOT_TOKEN)
+                return              # bot.close() 被呼叫，正常結束
+            except discord.HTTPException as e:
+                if e.status == 429:
+                    log.error(f'Discord 登入被 rate-limit (HTTP 429 / Cloudflare 1015)，'
+                              f'sleep {backoff}s 後重試（process 不退出，避免 Railway 重啟惡性循環）')
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, max_backoff)
+                    continue
+                raise
+            except Exception as e:
+                log.error(f'Bot 啟動例外: {type(e).__name__}: {e}')
+                raise
+    asyncio.run(run_with_retry())
