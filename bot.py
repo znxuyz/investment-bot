@@ -1279,25 +1279,38 @@ async def on_ready():
 
 if __name__ == '__main__':
     async def run_with_retry():
-        """攔截 Discord 登入 429 (Cloudflare error 1015，IP rate-limit)。
-        若退出 process，Railway 會自動重啟並再次呼叫 login，反而把 rate limit 計時器歸零。
-        改為 Bot 保持活著、指數退避重試，給 Cloudflare 冷靜時間自動解除。
+        """攔截 Discord 登入 429 (Cloudflare 1015 / IP rate-limit)。
+
+        關鍵：每次 retry 前必須 await bot.close() 把上一次失敗留下的 aiohttp
+        session 關乾淨。否則漏掉的 session 仍會背景 keep-alive 打 Discord，
+        被 Cloudflare 視為 IP 持續叩門 → rate limit 計時器不會減，永遠不解。
         """
         backoff = 60                # 起 1 分鐘
-        max_backoff = 30 * 60       # 上限 30 分鐘
+        max_backoff = 60 * 60       # 上限 60 分鐘
+        attempt = 0
         while True:
+            attempt += 1
             try:
                 await bot.start(BOT_TOKEN)
                 return              # bot.close() 被呼叫，正常結束
             except discord.HTTPException as e:
                 if e.status == 429:
-                    log.error(f'Discord 登入被 rate-limit (HTTP 429 / Cloudflare 1015)，'
-                              f'sleep {backoff}s 後重試（process 不退出，避免 Railway 重啟惡性循環）')
+                    log.error(f'[attempt {attempt}] Discord 登入被 rate-limit '
+                              f'(HTTP 429 / Cloudflare 1015)，sleep {backoff}s 後重試')
+                    # 收乾淨上次的 session，避免 Unclosed client session 背景叩門
+                    try:
+                        await bot.close()
+                    except Exception as close_err:
+                        log.warning(f'bot.close() 失敗（可忽略）：{close_err}')
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, max_backoff)
                     continue
                 raise
             except Exception as e:
-                log.error(f'Bot 啟動例外: {type(e).__name__}: {e}')
+                log.error(f'Bot 啟動例外 [{type(e).__name__}]: {e}')
+                try:
+                    await bot.close()
+                except Exception:
+                    pass
                 raise
     asyncio.run(run_with_retry())
