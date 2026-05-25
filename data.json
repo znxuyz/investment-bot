@@ -51,5 +51,6 @@
     "advice": "繼續等待，保留子彈",
     "last_date": "2026-05-01"
   },
-  "stale": true
+  "stale": true,
+  "last_attempt": "2026-05-25T09:29:28.569341+08:00"
 }
