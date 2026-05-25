@@ -191,8 +191,9 @@ function signal(light){
 
 // ── 渲染 ──
 // 判斷資料是否過時：
-//   - 10 分鐘 grace：時間戳在 10 分鐘內一律視為新鮮，不警告（正常 5 分鐘更新一次）
-//   - 超過 10 分鐘才開始判斷：交易時間內 / Bot 標 stale=true / 時間 > 24 小時都會警告
+//   - Bot 明確標 stale=true 一律警告（即使 updated 很新，代表 API 失敗 fallback）
+//   - 否則 10 分鐘 grace：時間戳在 10 分鐘內一律視為新鮮（正常 5 分鐘更新一次）
+//   - 超過 10 分鐘：交易時間內 / 時間 > 24 小時都會警告
 //   - 例外：updated 完全缺失或時間 > 24 小時，任何情況都警告
 function dataStaleness(d){
   const upd = d && d.updated ? new Date(d.updated) : null;
@@ -200,7 +201,7 @@ function dataStaleness(d){
   const fresh = ageMin !== null && ageMin <= 10;
   const explicitlyStale = d && d.stale === true;
   const tooLong = ageMin === null || ageMin > 60 * 24;
-  const isStale = !fresh && (isMarketHours() || explicitlyStale || tooLong);
+  const isStale = explicitlyStale || (!fresh && (isMarketHours() || tooLong));
   let ageLabel;
   if (ageMin === null)        ageLabel = '時間未知';
   else if (ageMin > 60*24)    ageLabel = `${Math.floor(ageMin/60/24)} 天前`;
@@ -222,7 +223,7 @@ function render(d){
   }
   const stale = dataStaleness(d);
   const staleMsg = d.stale === true
-    ? 'API 暫時無法取得最新資料'
+    ? `API 暫時無法取得最新資料（資料停留於 ${stale.ageLabel}）`
     : `資料已逾 ${stale.ageLabel} 未更新`;
   const dd = e.drawdown;
   const ddAbs = Math.min(Math.abs(dd)/25*100,100);

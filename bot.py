@@ -772,9 +772,11 @@ async def job_push_data(is_close_push=False, force=False):
     if not hist:
         # API 取得歷史資料失敗：重推上次快取，網頁顯示警告
         if _last_push_data:
+            # 保留原本 updated（資料真正的時間戳），只更新 last_attempt
+            # 這樣前端的「資料已逾 X 分鐘未更新」才會真實反映資料年齡
             stale = dict(_last_push_data)
             stale['stale'] = True
-            stale['updated'] = datetime.now(TW_TZ).isoformat()
+            stale['last_attempt'] = datetime.now(TW_TZ).isoformat()
             push_data_json(stale)
             log.warning('歷史資料 API 失敗，重推上次快取（stale=True）')
         else:
@@ -785,12 +787,12 @@ async def job_push_data(is_close_push=False, force=False):
 
     if not is_close_push:
         if not rt or not rt.get('is_open'):
-            # rt 失效統一處理：有 fallback 就推 stale 刷新時間戳，
+            # rt 失效統一處理：有 fallback 就推 stale 標記，
             # 無論 force/cron/manual 觸發都一致行為。
             if _last_push_data:
                 stale = dict(_last_push_data)
                 stale['stale'] = True
-                stale['updated'] = datetime.now(TW_TZ).isoformat()
+                stale['last_attempt'] = datetime.now(TW_TZ).isoformat()
                 push_data_json(stale)
                 ctx_parts = []
                 if force: ctx_parts.append('force')
@@ -885,10 +887,11 @@ async def job_daily_report(extra_send=None):
             msg = '\n'.join(l for l in lines if l)
             for ch in channels: await ch.send(msg)
             if extra_send: await extra_send(msg)
-            # 把 stale 版本推回 GitHub，刷新 updated 讓網頁感知到延遲
+            # 把 stale 版本推回 GitHub。保留原 updated，只更新 last_attempt，
+            # 讓網頁顯示「資料已逾 X 分鐘未更新」（原本竄改 updated 反而會讓資料看起來像剛更新）
             stale = dict(last)
             stale['stale'] = True
-            stale['updated'] = datetime.now(TW_TZ).isoformat()
+            stale['last_attempt'] = datetime.now(TW_TZ).isoformat()
             push_data_json(stale)
         else:
             err = '⚠️ 今日無法取得市場資料，請稍後使用 `/check` 查詢。'
