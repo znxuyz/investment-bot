@@ -1,14 +1,14 @@
 {
-  "updated": "2026-05-27T15:30:16.424844+08:00",
-  "market_open": true,
+  "updated": "2026-05-28T09:00:10.229507+08:00",
+  "market_open": false,
   "twii": {
     "price": 44256.8,
-    "chg": 1.6804681959050556
+    "chg": 0.0
   },
   "etf_0050": {
     "price": 102.55,
-    "chg": 2.44755244755245,
-    "label": "盤中即時",
+    "chg": 0.0,
+    "label": "最後收盤價（休市中）",
     "high60": 102.55,
     "high60_date": "2026/05/27",
     "high60_days": 0,
@@ -47,7 +47,7 @@
   },
   "foreign_net": null,
   "idle": {
-    "days": 26,
+    "days": 27,
     "emoji": "🟢",
     "advice": "繼續等待，保留子彈",
     "last_date": "2026-05-01"
